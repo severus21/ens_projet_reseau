@@ -24,3 +24,6 @@ class Task(Enum):
 
     #check if there is data stagging, ie not update for 35min
     prune_data = 5
+
+    #flood (id_datan seqno_data, data)
+    flood = 6
