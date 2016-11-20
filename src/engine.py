@@ -85,7 +85,9 @@ class Engine:
         logging.debug("begin process_task %s " % str(_type))
         
         if _type == Task.contact_u_n:
-            logging.info("begin sending hello")
+            logging.info("begin sending hello to %d neighbourgs" % 
+                (len(self.u_n)+len(self.s_n)))
+
             for (_,_,_addr) in chain(self.u_n.values(), self.s_n.values()):
                 print("hellot to ",_addr)
                 print()
@@ -94,14 +96,21 @@ class Engine:
             if len(self.s_n) < 5 and self.p_n:
                 (_,_,_addr) = random.choice( list(self.p_n.values()))
                 self.sendto( Pad1(), _addr)
-        elif _type == Task.ihu_s_n:    
+        elif _type == Task.ihu_s_n:
+            logging.info("begin sending IHU to %d neighbourgs" % len(self.s_n)) 
+
             for _id, (_,_,_addr) in chain(self.u_n.items(), self.s_n.items()):
                 self.sendto( IHU(_id), _addr)
         elif _type == Task.check_neighborgs:
+            logging.info("checking if there is enought neighbours")
+
             if len(self.p_n) < 5 and self.s_n:
+                logging.info("not enought neighbours, requesting others")
                 (_,_,_addr) = random.choice( list(self.s_n.values()))
                 self.sendto( NeighbourgRequest(), _addr)
         elif _type == Task.update_data:
+            logging.info("updating data")
+
             for id_data  in self.owned_data:
                 seqno, data, last_update = self.data[id_data]
 
@@ -110,11 +119,13 @@ class Engine:
         elif _type == Task.prune_data:
             del_keys = []
             for id_data, (seqno, data, last_update) in self.data:
-                if last_update + 35*60 < time():
+                if last_update + 35*60 < time() and (key not in self.owned_data):
                     del_keys.append(id_data)
+
+            logging.info("pruning %d outdated data" % len(del_keys))
+
             for key in del_keys:
-                if key not in self.owned_data:
-                    del self.data[key]
+                del self.data[key]
         elif _type == Task.flood:
             id_data, seqno_data, data = args
             if id_data in self.floods:
@@ -126,8 +137,11 @@ class Engine:
                 else:
                     logging.debug("already flooding more recent content")
             else:
+                logging.info("begin flooding (%d, %d)" % (id_data, seqno_data))
                 self.floods[id_data]=(seqno_data, data, set(self.s_n.keys()), None, 0)
         elif _type == Task.prune_neighborgs:
+            logging.info("pruning neighbourgs")
+
             for _id, (last_p, last_ihu, addr) in list(self.u_n.items()):
                 if last_p + 100 < time():
                     del self.u_n[_id]
