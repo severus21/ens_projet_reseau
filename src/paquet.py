@@ -52,5 +52,5 @@ def make_paquet (self_id, l):
     magic = (57).to_bytes(1, byteorder = 'big')
     version = (0).to_bytes(1, byteorder = 'big')
     n = len(body)
-    length = n.to_bytes(1, byteorder = 'big')
+    length = n.to_bytes(2, byteorder = 'big')
     return magic + version + length + self_id + body
