@@ -1,4 +1,7 @@
 from .misc import Msg
+import .utility
+
+
 
 def Pad1 () :
     return (0).to_bytes(1, byteorder = 'big') 
@@ -11,10 +14,11 @@ def PadN (mbz) :
     return _type + length+mbz
         
 def IHU (_id):
+    _id = (_id).to_bytes(8, byteorder='big')
     n = len(_id)
     _type = (2).to_bytes(1, byteorder = 'big')
     length = (8).to_bytes(1, byteorder = 'big')
-    return _type + length + _id.to_bytes(8, byteorder='big')
+    return _type + length + _id
      
 def NeighbourgRequest ():
     _type = (3).to_bytes(1, byteorder = 'big')
@@ -24,7 +28,7 @@ def NeighbourgRequest ():
 def Neighbourg (l):
     body = b''
     for (_id, (ip, port)) in l :
-        body += _id+ip+port
+        body += (_id).to_bytes(8, byteorder='big')+ip_string_to_byte(ip)+port.to_bytes(2, byteorder='big')
     n = len(body)
     if n % 8 !=0:
         body += (0).to_bytes(8-n%8, byteorder = 'big')
@@ -34,6 +38,7 @@ def Neighbourg (l):
     return _type + length + body
      
 def Data (_id, seqno, data):
+    _id = (_id).to_bytes(8, byteorder='big')
     seqno =(seqno).to_bytes(4, byteorder = 'big')
     n = len(seqno)+len(_id)+len(data)
     _type = (5).to_bytes(1, byteorder = 'big')
@@ -41,6 +46,7 @@ def Data (_id, seqno, data):
     return _type + length + seqno +_id +data
      
 def IHave(_id,seqno):
+    _id = (_id).to_bytes(8, byteorder='big')
     seqno =(seqno).to_bytes(4, byteorder = 'big')
     n = len(seqno)+len(_id)
     _type = (6).to_bytes(1, byteorder = 'big')
@@ -78,7 +84,7 @@ def to_one_tlv (paquet, i):
         l = []
         while (j < i+2+length-7):
             _id = int.from_bytes(paquet[j:j+8], byteorder='big')
-            ip = int.from_bytes(paquet[j+8:j+24], byteorder='big')
+            ip = ip_byte_to_string(paquet[j+8:j+24])
             port = int.from_bytes(paquet[j+24:j+26], byteorder='big')
             j = j+26
             l.append((_id,(ip,port)))
