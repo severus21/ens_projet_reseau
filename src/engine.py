@@ -13,10 +13,10 @@ from copy import deepcopy
 from .utility import *
 from .misc import *
 from .scheduler import Scheduler
-
+from .paquet import *
 
 class Engine:
-    def __init__(self, path=None, ip='::0', port=None, bootstrap=[]):
+    def __init__(self, path=None, ip='0.0.0.0', port=None, bootstrap=[]):
         """
         @param path - path to store program data for recovery
         """
@@ -56,9 +56,19 @@ class Engine:
         if path and isdir(path):
             self.load()
         
-    def sendto(self, data, addr):
-        logging.debug("sending to " % str(addr))
-        self.sock.sendto(data, addr)
+    def sendto(self, tlv, addr):
+        logging.debug("sending to %s - %s" % (addr[0], str(addr[1])))
+        try:
+            saddr = socket.getaddrinfo(addr[0], addr[1], 
+                    proto=socket.IPPROTO_UDP)[0][-1]
+            paquet = make_paquet(self.id, [tlv])
+            print( saddr)
+            _len = self.sock.sendto( paquet, saddr)
+            if len(paquet) != _len:
+                logging.warning("sendto incomplete, bytes send %d/%d" % (
+                    len(paquet), _len))
+        except Exception as e:
+            logging.warning("sendto failed : %s" % str(e))
 
     def load(self):
         pass
@@ -216,14 +226,14 @@ class Engine:
         main loop
         """
         try:
-            self.sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP) 
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) 
             self.sock.bind((self.ip, self.port ))
             self.sock.settimeout(0.001)
         except Exception as e:
             print((self.ip, self.port))
             logging.error( "Socket init failed : %s" % str(e) )
             return False 
-        logging.debug("socket init (%s,%d): success!")
+        logging.debug("socket init (%s,%d): success!" % (self.ip, self.port))
 
         self.scheduler.start()
 
