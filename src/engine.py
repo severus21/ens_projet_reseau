@@ -3,6 +3,8 @@ import socket
 import pickle
 import random
 
+from threading import Thread, Event
+
 from itertools import chain
 from collections import deque
 from random import getrandbits
@@ -15,11 +17,13 @@ from .misc import *
 from .scheduler import Scheduler
 from .paquet import *
 
-class Engine:
+class Engine(Thread):
     def __init__(self, path=None, ip='0.0.0.0', port=None, bootstrap=[]):
         """
         @param path - path to store program data for recovery
         """
+        Thread.__init__(self)
+
         self.path = path
         self.ip = ip
         self.port = port
@@ -81,6 +85,7 @@ class Engine:
         if not self.tasks:
             return
 
+        print("nombre de voisins ", len(self.p_n), len(self.u_n), len(self.s_n))
         _type, args = self.tasks.pop()
         logging.debug("begin process_task %s " % str(_type))
         
@@ -144,8 +149,10 @@ class Engine:
 
             for _id, (last_p, last_ihu, addr) in list(self.u_n.items()):
                 if last_p + 100 < time():
+                    print(self.u_n)
                     del self.u_n[_id]
             for _id, (last_p, last_ihu, addr) in list(self.s_n.items()):
+                print(_id, last_p, last_ihu, addr)
                 if last_p + 150 < time() or last_ihu + 300 < time():
                     del self.s_n[_id]
 
@@ -159,13 +166,16 @@ class Engine:
 
         #maintenance de la liste des paquets
         if (_id not in self.u_n) and (_id not in self.s_n):
+            if _id in self.p_n:
+                del self.p_n[_id]
+
             logging.info("%d added to unidirectionnal neighbours" % _id)
             self.u_n[_id] = (time(), -1, addr)
             print(self.u_n)
         elif _id in self.u_n:
-            self.u_n[_id] = (time(), self.u_n[_id][2], addr)    
+            self.u_n[_id] = (time(), self.u_n[_id][1], addr)    
         elif _id in self.s_n:    
-            self.s_n[_id] = (time(), self.s_n[_id][2], addr)    
+            self.s_n[_id] = (time(), self.s_n[_id][1], addr)    
 
         if not tlvs:
             return None
@@ -180,18 +190,24 @@ class Engine:
                 logging.debug("Received IHU and processing")
                 if _id in self.u_n:
                     del self.u_n[_id]
-                elif _id in self.p_n:
+                if _id in self.p_n:
                     del self.p_n[_id]
                 
                 self.s_n[_id] = (time(), time(), addr)
+                print(self.s_n)
+                print(self.p_n)
             elif _type == Msg.NR:
+                logging.info("Received NeighbourgRequest and processing")
                 ids = random.sample(list(self.s_n.keys()), min(10, len(self.s_n)))
-                self.sendto(Neighbours([(i,self.s_n[-1]) for i in ids]), addr)
+                self.sendto(Neighbourg([(i,self.s_n[-1]) for i in ids]), addr)
             elif _type == Msg.N:
+                logging.info("Received Neighbourg and processing")
+                print(args)
                 for (id0, addr0) in args:  
                     self.p_n[id0] = (time(), -1, addr0)
             elif _type == Msg.Data:
                 id_data, seqno_data, data_pub = args
+                logging.info("Received Data (%d,%d) and processing" % (id_data, seqno_data))
                 
                 self.sendto(IHave(id_data, seqno_data), addr)
                 
@@ -210,6 +226,7 @@ class Engine:
 
             elif _type == Msg.IHave:
                 id_data, seqno_data= args
+                logging.info("Received IHave and processing" % (id_data, seqno_data))
                 
                 if id_data not in self.floods:
                     continue

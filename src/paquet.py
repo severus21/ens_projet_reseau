@@ -1,5 +1,5 @@
 from .misc import Msg
-import .utility
+from .utility import *
 
 
 
