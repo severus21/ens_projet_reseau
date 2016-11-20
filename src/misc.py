@@ -1,5 +1,7 @@
 from enum import Enum
 
+PAQUET_MAX_LEN = 4096
+
 class Msg(Enum):
     Pad1 = 1
     PadN = 2
@@ -27,3 +29,6 @@ class Task(Enum):
 
     #flood (id_datan seqno_data, data)
     flood = 6
+
+    #each 100s prune u_n, 15Os s_netc
+    prune_neighborgs = 7
