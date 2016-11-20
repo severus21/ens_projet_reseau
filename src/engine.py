@@ -26,7 +26,7 @@ class Engine:
         self.bootstrap = bootstrap 
 
 
-        self.id = (getrandbits(8).to_bytes(8, byteorder='big'))
+        self.id = random.randint(0, 2**64) 
         self.seqno = 0
 
         #{"id": (seqno, donnée, date last update)} 
@@ -56,13 +56,14 @@ class Engine:
         if path and isdir(path):
             self.load()
         
+        logging.info("i am %s : %s %d"% (hex(self.id), self.ip, self.port))
     def sendto(self, tlv, addr):
         logging.debug("sending to %s - %s" % (addr[0], str(addr[1])))
         try:
             saddr = socket.getaddrinfo(addr[0], addr[1], 
                     proto=socket.IPPROTO_UDP)[0][-1]
             paquet = make_paquet(self.id, [tlv])
-            print( saddr)
+            print( saddr, paquet)
             _len = self.sock.sendto( paquet, saddr)
             if len(paquet) != _len:
                 logging.warning("sendto incomplete, bytes send %d/%d" % (
@@ -84,7 +85,10 @@ class Engine:
         logging.debug("begin process_task %s " % str(_type))
         
         if _type == Task.contact_u_n:
+            logging.info("begin sending hello")
             for (_,_,_addr) in chain(self.u_n.values(), self.s_n.values()):
+                print("hellot to ",_addr)
+                print()
                 self.sendto( Pad1(), _addr)
 
             if len(self.s_n) < 5 and self.p_n:
@@ -96,13 +100,13 @@ class Engine:
         elif _type == Task.check_neighborgs:
             if len(self.p_n) < 5 and self.s_n:
                 (_,_,_addr) = random.choice( list(self.s_n.values()))
-                self.sendto( NeighbourRequest(), _addr)
+                self.sendto( NeighbourgRequest(), _addr)
         elif _type == Task.update_data:
             for id_data  in self.owned_data:
                 seqno, data, last_update = self.data[id_data]
 
                 self.data[id_data] = (seqno+1, data, time())
-                self.tasks.appendleft( (task.flood, id_data, seqno+1, data) )  
+                self.tasks.appendleft( (task.flood, (id_data, seqno+1, data)) )  
         elif _type == Task.prune_data:
             del_keys = []
             for id_data, (seqno, data, last_update) in self.data:
@@ -118,7 +122,7 @@ class Engine:
                 (seqno_flood, _,_,_) = self.floods[id_data]
                 if seqno_flood < seqno_data:
                     #interruption du flood pour la notre??
-                    self.tasks.appendleft( Task.flood, args)
+                    self.tasks.appendleft( (Task.flood, args) )
                 else:
                     logging.debug("already flooding more recent content")
             else:
@@ -140,8 +144,10 @@ class Engine:
         logging.debug("begin process_recv %s" % str(_id))
 
         #maintenance de la liste des paquets
-        if _id not in self.u_n and _id not in self.s_n:
+        if (_id not in self.u_n) and (_id not in self.s_n):
+            logging.info("%d added to unidirectionnal neighbours" % _id)
             self.u_n[_id] = (time(), -1, addr)
+            print(self.u_n)
         elif _id in self.u_n:
             self.u_n[_id] = (time(), self.u_n[_id][2], addr)    
         elif _id in self.s_n:    
@@ -151,18 +157,19 @@ class Engine:
             return None
         
         for (_type, args) in tlvs:
+            logging.debug("begin process tlv %s" % str(_type))
             if _type == Msg.Pad1 or _type == Msg.PadN:
                 pass
             elif _type == Msg.IHU:
-                if args[0] != self.id:
+                if args != self.id:
                     continue
-
+                logging.debug("Received IHU and processing")
                 if _id in self.u_n:
                     del self.u_n[_id]
                 elif _id in self.p_n:
                     del self.p_n[_id]
-                else:
-                    self.s_n[_id] = (time(), time(), addr)
+                
+                self.s_n[_id] = (time(), time(), addr)
             elif _type == Msg.NR:
                 ids = random.sample(list(self.s_n.keys()), min(10, len(self.s_n)))
                 self.sendto(Neighbours([(i,self.s_n[-1]) for i in ids]), addr)
@@ -183,9 +190,9 @@ class Engine:
                 if id_data in self.data:
                     if self.data[id_data][0] < seqno_data:
                         self.data[id_data](seqno_data, data_pub, time())
-                        self.tasks.appendleft( (task.flood, id_data, seqno_data, data_pub) )  
+                        self.tasks.appendleft( (task.flood, (id_data, seqno_data, data_pub)) )  
                 else:
-                    self.tasks.appendleft( (task.flood, id_data, seqno_data, data_pub) )  
+                    self.tasks.appendleft( (task.flood, (id_data, seqno_data, data_pub)) )  
 
             elif _type == Msg.IHave:
                 id_data, seqno_data= args
