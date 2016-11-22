@@ -32,3 +32,6 @@ class Task(Enum):
 
     #each 100s prune u_n, 15Os s_netc
     prune_neighborgs = 7
+
+    #each 1s refresh ihm
+    refresh_ihm = 8

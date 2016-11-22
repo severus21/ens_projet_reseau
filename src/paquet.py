@@ -78,6 +78,9 @@ def to_one_tlv (paquet, i):
         length = paquet[i+1]
         _id = int.from_bytes(paquet[i+2:i+10], byteorder='big') 
         return (Msg.IHU, _id),i+2+length
+    elif _type == 3:
+        length = paquet[i+1]
+        return (Msg.NR, None), i+2+length
     elif _type == 4:
         length = paquet[i+1]
         j = i+2
@@ -88,19 +91,19 @@ def to_one_tlv (paquet, i):
             port = int.from_bytes(paquet[j+24:j+26], byteorder='big')
             j = j+26
             l.append((_id,(ip,port)))
-        return (Msg.NR, l), i+2+length 
+        return (Msg.N, l), i+2+length 
         
     elif _type == 5:
         length = paquet[i+1]-12
         seqno = int.from_bytes(paquet[i+2:i+6], byteorder='big')
         _id = int.from_bytes(paquet[i+6:i+14], byteorder='big')
         data = paquet[i+14:i+14+length]
-        return (Msg.N, (_id, seqno, data)), i+14+length
+        return (Msg.Data, (_id, seqno, data)), i+14+length
     elif _type == 6:
         length = paquet[i+1]
         seqno = int.from_bytes(paquet[i+2:i+6], byteorder='big')
         _id = int.from_bytes(paquet[i+6:i+14], byteorder='big')
-        return (Msg.Data, (_id, seqno)), i+2+length
+        return (Msg.IHave, (_id, seqno)), i+2+length
     else :
         length = paquet[i+1]
         return (None, i+2 +length)
