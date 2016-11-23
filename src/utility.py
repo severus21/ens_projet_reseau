@@ -1,3 +1,6 @@
+import os, sys, traceback
+import logging
+
 from ipaddress import *
 
 def ipv_2_ipv6(ip):
@@ -28,3 +31,13 @@ def center(_str):
 
 def underline(_str):
     return "="*len(_str)
+
+def log_exc(e):
+    exc_type, exc_obj, exc_tb = sys.exc_info()
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+
+    d = "\n".join(  traceback.format_exception(exc_type, exc_obj, 
+        exc_tb))
+    logging.warning("""error unknow in main loop %s in %s at line %d :
+    %s %s""" % (str(exc_type), str(fname), exc_tb.tb_lineno, str(e), 
+    d))

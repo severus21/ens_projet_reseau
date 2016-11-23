@@ -70,7 +70,6 @@ def make_paquet (_id0, l):
  
    
 def to_one_tlv (paquet, i):
-    print(i, paquet[i])
     _type = paquet[i]
     if (_type == 0):  
         return (Msg.Pad1, None), i+1

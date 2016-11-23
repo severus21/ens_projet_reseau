@@ -19,6 +19,7 @@ from .utility import *
 from .misc import *
 from .scheduler import Scheduler
 from .paquet import *
+from .node import Node
 
 class Engine(Thread):
     def __init__(self, path=None, ip='::', port=None, bootstrap=[], data=[]):
@@ -45,7 +46,7 @@ class Engine(Thread):
             _id = random.randint(0, 2**64)
             self.data[_id] = (0, d, time())
             self.owned_data.add( _id )
-        #potential_neighbors, {'id': (date dernier paquet, date dernier IHU, (ip, port))}
+        #potential_neighbors, {'id': node obj}
         self.p_n = {} 
         #unidirectional_neighbors, same
         self.u_n = {}
@@ -55,7 +56,7 @@ class Engine(Thread):
         self.addrs = {}
 
         for _id, _addr in self.bootstrap:
-            self.p_n[_id] = (-1, -1, _addr)
+            self.p_n[_id] = Node(_id, _addr)
             self.addrs[_addr] = _id
 
         #list of pending tasks
@@ -103,24 +104,25 @@ class Engine(Thread):
             logging.info("begin sending hello to %d neighbourgs" % 
                 (len(self.u_n)+len(self.s_n)))
 
-            for (_,_,_addr) in chain(self.u_n.values(), self.s_n.values()):
-                self.sendto( Pad1(), _addr)
+            for node in chain(self.u_n.values(), self.s_n.values()):
+                self.sendto( Pad1(), node.addr)
 
             if len(self.s_n) < 5 and self.p_n:
-                (_,_,_addr) = random.choice( list(self.p_n.values()))
-                self.sendto( Pad1(), _addr)
+                node = random.choice( list(self.p_n.values()))
+                self.sendto( Pad1(), node.addr)
         elif _type == Task.ihu_s_n:
             logging.info("begin sending IHU to %d neighbourgs" % len(self.s_n)) 
 
-            for _id, (_,_,_addr) in chain(self.u_n.items(), self.s_n.items()):
-                self.sendto( IHU(_id), _addr)
+            for node in chain(self.u_n.values(), self.s_n.values()):
+                self.sendto( IHU(node._id), node.addr)
         elif _type == Task.check_neighborgs:
             logging.info("checking if there is enought neighbours")
 
             if len(self.p_n) < 5 and self.s_n:
                 logging.info("not enought neighbours, requesting others")
-                (_,_,_addr) = random.choice( list(self.s_n.values()))
-                self.sendto( NeighbourgRequest(), _addr)
+                node = random.choice( list(self.s_n.values()))
+
+                self.sendto( NeighbourgRequest(), node.addr)
         elif _type == Task.update_data:
             logging.info("updating data")
 
@@ -128,7 +130,7 @@ class Engine(Thread):
                 seqno, data, last_update = self.data[id_data]
 
                 self.data[id_data] = (seqno+1, data, time())
-                self.tasks.appendleft( (task.flood, (id_data, seqno+1, data)) )  
+                self.tasks.appendleft( (Task.flood, (id_data, seqno+1, data)) )  
         elif _type == Task.prune_data:
             del_keys = []
             for id_data, (seqno, data, last_update) in self.data.items():
@@ -155,16 +157,14 @@ class Engine(Thread):
         elif _type == Task.prune_neighborgs:
             logging.info("pruning neighbourgs")
 
-            for _id, (last_p, last_ihu, addr) in list(self.u_n.items()):
-                if last_p + 100 < time():
-                    print(self.u_n)
-                    del self.addrs[ self.u_n[_id][-1] ]
-                    del self.u_n[_id]
-            for _id, (last_p, last_ihu, addr) in list(self.s_n.items()):
-                print(_id, last_p, last_ihu, addr)
-                if last_p + 150 < time() or last_ihu + 300 < time():
-                    del self.addrs[ self.s_n[_id][-1] ]
-                    del self.s_n[_id]
+            for node in list(self.u_n.values()):
+                if node.last_paquet + 100 < time():
+                    del self.addrs[ self.u_n[node._id].addr ]
+                    del self.u_n[node._id]
+            for node in list(self.s_n.values()):
+                if node.last_paquet + 150 < time() or node.last_ihu + 300 < time():
+                    del self.addrs[ self.s_n[node._id].addr ]
+                    del self.s_n[node._id]
         elif _type == Task.refresh_ihm:
            os.system('clear')
            title = "Node id: %s, Uptime: %ds" % (hex(self.id), int(time()-self.starttime))
@@ -180,11 +180,11 @@ class Engine(Thread):
                 print( underline(title) )
 
                 n_data = " "*9 + "Id" + " "*9 + " " + " "*16+ "Ip" + " "*17
-                for _id, (last_paquet, last_ihu, addr) in htbl.items():
-                    l_p = int(time()-last_paquet) if last_paquet >= 0 else -1 
-                    l_i = int(time()-last_ihu) if last_ihu >= 0 else -1 
-                    n_data = "%s\n  %s  %s:%d  %d  %d" % (n_data, hex(_id),
-                            addr[0], addr[1], l_p, l_i)
+                for node in htbl.values():
+                    l_p = int(time()-node.last_paquet) if node.last_paquet >= 0 else -1 
+                    l_i = int(time()-node.last_ihu) if node.last_ihu >= 0 else -1 
+                    n_data = "%s\n  %s  %s:%d  %d  %d" % (n_data, hex(node._id),
+                            node.addr[0], node.addr[1], l_p, l_i)
                 print(n_data)
 
            title = "Data :"
@@ -193,7 +193,7 @@ class Engine(Thread):
 
            b_data = " "*9 + "Id" + " "*9 + " " + "Seqno" + " "+ "Len" 
            for _id, (seqno, data, _) in self.data.items():
-               b_data = "%s\n  %s  %d %d  %s" % (b_data, hex(_id), seqno, len(data), data.decode("utf-8"))
+               b_data = "%s\n  %s  %d %d  |%s|" % (b_data, hex(_id), seqno, len(data), data.decode("utf-8"))
            print( b_data )
     def process_recv(self, data, addr):
         if not data:
@@ -205,17 +205,19 @@ class Engine(Thread):
         #maintenance de la liste des paquets
         if (_id not in self.u_n) and (_id not in self.s_n):
             if _id in self.p_n:
-                del self.addrs[ self.p_n[_id][-1] ]
+                del self.addrs[ self.p_n[_id].addr ]
                 del self.p_n[_id]
 
             logging.info("%s added to unidirectionnal neighbours" % hex(_id))
             self.addrs[addr] = _id
-            self.u_n[_id] = (time(), -1, addr)
+            self.u_n[_id] = Node(_id, addr, time(), -1)
             self.sendto( IHU(_id), addr)#première connection du coup on envoit un IHU
         elif _id in self.u_n:
-            self.u_n[_id] = (time(), self.u_n[_id][1], addr)    
+            self.u_n[_id].last_paquet = time()
+            self.u_n[_id].addr = addr
         elif _id in self.s_n:    
-            self.s_n[_id] = (time(), self.s_n[_id][1], addr)    
+            self.s_n[_id].last_paquet = time()
+            self.s_n[_id].addr = addr
 
         if not tlvs:
             return None
@@ -233,18 +235,18 @@ class Engine(Thread):
                 if _id in self.p_n:
                     del self.p_n[_id]
                 
-                self.s_n[_id] = (time(), time(), addr)
+                self.s_n[_id] = Node(_id, addr, time(), time())
                 #flood
             elif _type == Msg.NR:
                 logging.info("Received NeighbourgRequest and processing")
                 #filter lui même
                 ids = random.sample(list(self.s_n.keys()), min(10, len(self.s_n)))
-                self.sendto(Neighbourg([(i,self.s_n[i][-1]) for i in ids]), addr)
+                self.sendto(Neighbourg([(i,self.s_n[i].addr) for i in ids]), addr)
             elif _type == Msg.N:
                 logging.info("Received Neighbourg and processing")
                 for (id0, addr0) in args: 
                     if id0 != self.id:
-                        self.p_n[id0] = (time(), -1, addr0)
+                        self.p_n[id0] = Node(_id, addr, time())
 
             elif _type == Msg.Data:
                 id_data, seqno_data, data_pub = args
@@ -298,7 +300,8 @@ class Engine(Thread):
                 logging.info("flooding %s,%d to %d nodes" %(hex(id_data), seqno_data, len(L)))
                 for _id in L:
                     if _id in self.s_n:
-                        self.sendto( Data(id_data, seqno_data, data), self.s_n[_id][-1])       
+                        self.sendto( Data(id_data, seqno_data, data), 
+                            self.s_n[_id].addr)       
                     else:
                         L.remove(_id)
                 self.floods[id_data] = (seqno_data, data, L, deadline if deadline else time()+11, time())
@@ -312,12 +315,9 @@ class Engine(Thread):
             self.sock.bind((self.ip, self.port ))
             self.sock.settimeout(0.001)
         except Exception as e:
-            exc_type, exc_obj, exc_tb = sys.exc_info()
-            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-            logging.warning("""error unknow in main loop %s in %s at line %d :
-            %s %s""" % (str(exc_type), str(fname), exc_tb.tb_lineno, str(e), 
-            repr(traceback.format_exception(exc_type, exc_obj, exc_tb))))
+            log_exc(e)
             return False 
+
         logging.info("socket init (%s,%d): success!" % (self.ip, self.port))
 
         self.scheduler.start()
@@ -337,8 +337,4 @@ class Engine(Thread):
                 self.process_task()
                 self.proccess_floods() #probablement trop de priorité donnée au floods
             except Exception as e:
-                exc_type, exc_obj, exc_tb = sys.exc_info()
-                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-                logging.warning("""error unknow in main loop %s in %s at line %d :
-                %s %s""" % (str(exc_type), str(fname), exc_tb.tb_lineno, str(e), 
-                repr(traceback.format_exception(exc_type, exc_obj, exc_tb))))
+                log_exc(e)  
