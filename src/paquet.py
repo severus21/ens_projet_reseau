@@ -1,5 +1,7 @@
 import logging
 
+from math import ceil
+
 from .misc import Msg
 from .utility import *
 
@@ -46,7 +48,26 @@ def Data (_id, seqno, data):
     _type = (5).to_bytes(1, byteorder = 'big')
     length = n.to_bytes(1, byteorder = 'big')
     return _type + length + seqno +_id +data
-     
+
+def str_to_data(_str):
+    _str, _t = _str.encode(), (32).to_bytes(1, byteorder='big')
+    if(len(_str)>253):
+        raise Exception("Str is too large %d > %d : %s" % (len(_str), max_len, _str))
+    
+    return _t+(len(_str)).to_bytes(1, byteorder="big") + _str
+
+def extract_data(data):
+    _len = len(data)
+    if _len == 0:
+        return ""
+    
+    #on extrait que le 1er tlv, la sémantique n'est pas définie 
+    t0, len0 = data[0], data[1]
+    if t0 == 32:
+        return data[2:2+2+len0].decode('utf-8')
+    else:
+        return "Not supported %d" % t0
+    
 def IHave(_id,seqno):
     _id = (_id).to_bytes(8, byteorder='big')
     seqno =(seqno).to_bytes(4, byteorder = 'big')
@@ -54,6 +75,7 @@ def IHave(_id,seqno):
     _type = (6).to_bytes(1, byteorder = 'big')
     length = n.to_bytes(1, byteorder = 'big')
     return _type + length + seqno +_id 
+
 
 
 def make_paquet (_id0, l):

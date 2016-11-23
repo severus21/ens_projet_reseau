@@ -53,11 +53,9 @@ class Engine(Thread):
         #symmetrical_neighbors, set of id of data
         self.s_n = {}
         #{("ip",port:_id}
-        self.addrs = {}
 
         for _id, _addr in self.bootstrap:
             self.p_n[_id] = Node(_id, _addr)
-            self.addrs[_addr] = _id
 
         #list of pending tasks
         self.tasks = deque(maxlen=10**4)
@@ -141,6 +139,12 @@ class Engine(Thread):
 
             for key in del_keys:
                 del self.data[key]
+
+            for node in self.s_n:
+                for key in del_keys:
+                    if key in node.data:
+                        del node.data[key]
+
         elif _type == Task.flood:
             id_data, seqno_data, data = args
             if id_data in self.floods:
@@ -159,11 +163,9 @@ class Engine(Thread):
 
             for node in list(self.u_n.values()):
                 if node.last_paquet + 100 < time():
-                    del self.addrs[ self.u_n[node._id].addr ]
                     del self.u_n[node._id]
             for node in list(self.s_n.values()):
                 if node.last_paquet + 150 < time() or node.last_ihu + 300 < time():
-                    del self.addrs[ self.s_n[node._id].addr ]
                     del self.s_n[node._id]
         elif _type == Task.refresh_ihm:
            os.system('clear')
@@ -193,7 +195,7 @@ class Engine(Thread):
 
            b_data = " "*9 + "Id" + " "*9 + " " + "Seqno" + " "+ "Len" 
            for _id, (seqno, data, _) in self.data.items():
-               b_data = "%s\n  %s  %d %d  |%s|" % (b_data, hex(_id), seqno, len(data), data.decode("utf-8"))
+               b_data = "%s\n  %s  %d %d  |%s|" % (b_data, hex(_id), seqno, len(data), extract_data(data))
            print( b_data )
     def process_recv(self, data, addr):
         if not data:
@@ -205,11 +207,9 @@ class Engine(Thread):
         #maintenance de la liste des paquets
         if (_id not in self.u_n) and (_id not in self.s_n):
             if _id in self.p_n:
-                del self.addrs[ self.p_n[_id].addr ]
                 del self.p_n[_id]
 
             logging.info("%s added to unidirectionnal neighbours" % hex(_id))
-            self.addrs[addr] = _id
             self.u_n[_id] = Node(_id, addr, time(), -1)
             self.sendto( IHU(_id), addr)#première connection du coup on envoit un IHU
         elif _id in self.u_n:
@@ -246,14 +246,20 @@ class Engine(Thread):
                 logging.info("Received Neighbourg and processing")
                 for (id0, addr0) in args: 
                     if id0 != self.id:
-                        self.p_n[id0] = Node(_id, addr, time())
+                        self.p_n[id0] = Node(id0, addr0, time())
 
             elif _type == Msg.Data:
                 id_data, seqno_data, data_pub = args
                 logging.info("Received Data (%s,%d) from (%s,%s,%d)" % (hex(id_data), seqno_data, hex(_id), addr[0], addr[1]))
                 
                 self.sendto(IHave(id_data, seqno_data), addr)
-                
+                if _id in self.s_n:
+                    node = self.s_n[_id]
+                    if id_data in node.data:
+                        node.data[id_data] = max(seqno_data, node.data[id_data])
+                    else:
+                        node.data[id_data] = seqno_data
+
                 if id_data in self.floods:
                     (tmp_sqno,_,L,_,_) = self.floods[id_data]
                     if seqno_data >= tmp_sqno and _id in L:
@@ -271,7 +277,13 @@ class Engine(Thread):
             elif _type == Msg.IHave:
                 id_data, seqno_data= args
                 logging.info("Received IHave (%s,%d) and processing" % (hex(id_data), seqno_data))
-                
+                if _id in self.s_n:
+                    node = self.s_n[_id]
+                    if id_data in node.data:
+                        node.data[id_data] = max(seqno_data, node.data[id_data])
+                    else:
+                        node.data[id_data] = seqno_data
+
                 if id_data not in self.floods:
                     continue
                 

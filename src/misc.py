@@ -10,7 +10,10 @@ class Msg(Enum):
     N = 5 #Neighbours
     Data = 6
     IHave = 7
-
+    Str = 8
+    PNG = 9
+    JPEG = 10
+    
 class Task(Enum):
     #contact unidirectional neighborgs, each 30s
     contact_u_n = 1
