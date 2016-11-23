@@ -1,3 +1,5 @@
+import logging
+
 from .misc import Msg
 from .utility import *
 
@@ -68,6 +70,7 @@ def make_paquet (_id0, l):
  
    
 def to_one_tlv (paquet, i):
+    print(i, paquet[i])
     _type = paquet[i]
     if (_type == 0):  
         return (Msg.Pad1, None), i+1
@@ -85,6 +88,7 @@ def to_one_tlv (paquet, i):
         length = paquet[i+1]
         j = i+2
         l = []
+        logging.info("Paquet N : %s"% repr(paquet))
         while (j < i+2+length-7):
             _id = int.from_bytes(paquet[j:j+8], byteorder='big')
             ip = ip_byte_to_string(paquet[j+8:j+24])

@@ -3,6 +3,8 @@ import socket
 import pickle
 import random
 import sys, os
+import traceback
+
 
 from threading import Thread, Event
 
@@ -19,7 +21,7 @@ from .scheduler import Scheduler
 from .paquet import *
 
 class Engine(Thread):
-    def __init__(self, path=None, ip='::', port=None, bootstrap=[]):
+    def __init__(self, path=None, ip='::', port=None, bootstrap=[], data=[]):
         """
         @param path - path to store program data for recovery
         """
@@ -38,8 +40,11 @@ class Engine(Thread):
 
         #{"id": (seqno, donnée, date last update)} 
         self.data = {}
-        self.owned_data = {}
-
+        self.owned_data = set()
+        for d in data:
+            _id = random.randint(0, 2**64)
+            self.data[_id] = (0, d, time())
+            self.owned_data.add( _id )
         #potential_neighbors, {'id': (date dernier paquet, date dernier IHU, (ip, port))}
         self.p_n = {} 
         #unidirectional_neighbors, same
@@ -50,7 +55,6 @@ class Engine(Thread):
         self.addrs = {}
 
         for _id, _addr in self.bootstrap:
-            print("bootstrap ", hex(_id))
             self.p_n[_id] = (-1, -1, _addr)
             self.addrs[_addr] = _id
 
@@ -75,7 +79,6 @@ class Engine(Thread):
             #saddr = socket.getaddrinfo(addr[0], addr[1], 
             #        proto=socket.IPPROTO_UDP)[0][-1]
             paquet = make_paquet(self.id, [tlv])
-            print( saddr, paquet)
             _len = self.sock.sendto( paquet, saddr)
             if len(paquet) != _len:
                 logging.warning("sendto incomplete, bytes send %d/%d" % (
@@ -93,7 +96,6 @@ class Engine(Thread):
         if not self.tasks:
             return
 
-        print("nombre de voisins ", len(self.p_n), len(self.u_n), len(self.s_n))
         _type, args = self.tasks.pop()
         logging.debug("begin process_task %s " % str(_type))
         
@@ -102,8 +104,6 @@ class Engine(Thread):
                 (len(self.u_n)+len(self.s_n)))
 
             for (_,_,_addr) in chain(self.u_n.values(), self.s_n.values()):
-                print("hellot to ",_addr)
-                print()
                 self.sendto( Pad1(), _addr)
 
             if len(self.s_n) < 5 and self.p_n:
@@ -131,7 +131,7 @@ class Engine(Thread):
                 self.tasks.appendleft( (task.flood, (id_data, seqno+1, data)) )  
         elif _type == Task.prune_data:
             del_keys = []
-            for id_data, (seqno, data, last_update) in self.data:
+            for id_data, (seqno, data, last_update) in self.data.items():
                 if last_update + 35*60 < time() and (key not in self.owned_data):
                     del_keys.append(id_data)
 
@@ -170,7 +170,7 @@ class Engine(Thread):
            title = "Node id: %s, Uptime: %ds" % (hex(self.id), int(time()-self.starttime))
            print( center(title) )
            print( center(underline(title)) )
-           print( "\n\n")
+           print( "\n")
           
            for name, htbl in [("Symetrical", self.s_n), 
                    ("Unidirectionnal",self.u_n), ("Potential", self.p_n)]:
@@ -179,22 +179,21 @@ class Engine(Thread):
                 print( title )
                 print( underline(title) )
 
-                n_data = ""
+                n_data = " "*9 + "Id" + " "*9 + " " + " "*16+ "Ip" + " "*17
                 for _id, (last_paquet, last_ihu, addr) in htbl.items():
                     l_p = int(time()-last_paquet) if last_paquet >= 0 else -1 
                     l_i = int(time()-last_ihu) if last_ihu >= 0 else -1 
                     n_data = "%s\n  %s  %s:%d  %d  %d" % (n_data, hex(_id),
                             addr[0], addr[1], l_p, l_i)
                 print(n_data)
-                print( "\n")
 
            title = "Data :"
            print(title)
            print( underline(title))
 
-           b_data = ""
+           b_data = " "*9 + "Id" + " "*9 + " " + "Seqno" + " "+ "Len" 
            for _id, (seqno, data, _) in self.data.items():
-               b_data = "%s\n  %s  %d  %s" % (b_data, hex(_id), seqno, data)
+               b_data = "%s\n  %s  %d %d  %s" % (b_data, hex(_id), seqno, len(data), data.decode("utf-8"))
            print( b_data )
     def process_recv(self, data, addr):
         if not data:
@@ -212,8 +211,7 @@ class Engine(Thread):
             logging.info("%s added to unidirectionnal neighbours" % hex(_id))
             self.addrs[addr] = _id
             self.u_n[_id] = (time(), -1, addr)
-            print([hex(keys) for keys in self.u_n.keys()])
-            print([hex(keys) for keys in self.p_n.keys()])
+            self.sendto( IHU(_id), addr)#première connection du coup on envoit un IHU
         elif _id in self.u_n:
             self.u_n[_id] = (time(), self.u_n[_id][1], addr)    
         elif _id in self.s_n:    
@@ -236,8 +234,7 @@ class Engine(Thread):
                     del self.p_n[_id]
                 
                 self.s_n[_id] = (time(), time(), addr)
-                print(self.s_n)
-                print(self.p_n)
+                #flood
             elif _type == Msg.NR:
                 logging.info("Received NeighbourgRequest and processing")
                 #filter lui même
@@ -251,23 +248,23 @@ class Engine(Thread):
 
             elif _type == Msg.Data:
                 id_data, seqno_data, data_pub = args
-                logging.info("Received Data (%s,%d) and processing" % (hex(id_data), seqno_data))
-                print("data", data_pub)
+                logging.info("Received Data (%s,%d) from (%s,%s,%d)" % (hex(id_data), seqno_data, hex(_id), addr[0], addr[1]))
                 
                 self.sendto(IHave(id_data, seqno_data), addr)
                 
                 if id_data in self.floods:
                     (tmp_sqno,_,L,_,_) = self.floods[id_data]
-                    if seqno_data >= tmp_sqno:
+                    if seqno_data >= tmp_sqno and _id in L:
                         L.remove(_id)
                     continue
 
                 if id_data in self.data:
                     if self.data[id_data][0] < seqno_data:
-                        self.data[id_data](seqno_data, data_pub, time())
+                        self.data[id_data] = (seqno_data, data_pub, time())
                         self.tasks.appendleft( (Task.flood, (id_data, seqno_data, data_pub)) )  
                 else:
-                    self.tasks.appendleft( (Task.flood, (id_data, seqno_data, data_pub)) )  
+                     self.data[id_data] = (seqno_data, data_pub, time())
+                     self.tasks.appendleft( (Task.flood, (id_data, seqno_data, data_pub)) )  
 
             elif _type == Msg.IHave:
                 id_data, seqno_data= args
@@ -277,7 +274,7 @@ class Engine(Thread):
                     continue
                 
                 (tmp_sqno,_,L,_,_) = self.floods[id_data]
-                if seqno_data >= tmp_sqno:
+                if seqno_data >= tmp_sqno and _id in L:
                     L.remove(_id)
 
     def proccess_floods(self):
@@ -287,7 +284,6 @@ class Engine(Thread):
         logging.debug("begin process floods")
         #cleaning floods, ie deleting outdated floods(11s)
         del_keys = []
-        print(self.floods)
         for key,(seqno,_,L,deadline,_) in self.floods.items():
             if (deadline and deadline < time()) or not L:
                 del_keys.append( key )
@@ -316,10 +312,13 @@ class Engine(Thread):
             self.sock.bind((self.ip, self.port ))
             self.sock.settimeout(0.001)
         except Exception as e:
-            print((self.ip, self.port))
-            logging.error( "Socket init failed : %s" % str(e) )
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            logging.warning("""error unknow in main loop %s in %s at line %d :
+            %s %s""" % (str(exc_type), str(fname), exc_tb.tb_lineno, str(e), 
+            repr(traceback.format_exception(exc_type, exc_obj, exc_tb))))
             return False 
-        logging.debug("socket init (%s,%d): success!" % (self.ip, self.port))
+        logging.info("socket init (%s,%d): success!" % (self.ip, self.port))
 
         self.scheduler.start()
 
@@ -340,4 +339,6 @@ class Engine(Thread):
             except Exception as e:
                 exc_type, exc_obj, exc_tb = sys.exc_info()
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-                logging.warning("error unknow in main loop %s in %s at line %d : %s" % (str(exc_type), str(fname), exc_tb.tb_lineno, str(e)))
+                logging.warning("""error unknow in main loop %s in %s at line %d :
+                %s %s""" % (str(exc_type), str(fname), exc_tb.tb_lineno, str(e), 
+                repr(traceback.format_exception(exc_type, exc_obj, exc_tb))))
