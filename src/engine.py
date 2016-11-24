@@ -20,6 +20,7 @@ from .misc import *
 from .scheduler import Scheduler
 from .paquet import *
 from .node import Node
+from .flood import Flood
 
 class Engine(Thread):
     def __init__(self, path=None, ip='::', port=None, bootstrap=[], data=[]):
@@ -41,9 +42,9 @@ class Engine(Thread):
 
         #{"id": (seqno, donnée, date last update)} 
         self.data = {}
-        self.owned_data = set()
-        for d in data:
-            _id = random.randint(0, 2**64)
+        self.owned_data = set()#àfaire {id noeud:[list des données possédées]
+        for i,d in enumerate(data):
+            _id = self.id if i == 0 else  random.randint(0, 2**64)
             self.data[_id] = (0, d, time())
             self.owned_data.add( _id )
         #potential_neighbors, {'id': node obj}
@@ -61,7 +62,7 @@ class Engine(Thread):
         self.tasks = deque(maxlen=10**4)
         #message to be send not used
         self.msgs = deque(maxlen=10**4)
-        #all launched floods : {"id_data":("seqno_data", data, setofid_neighbourgs, deadline,last_send)}} ie only one flood per id_data
+        #all launched floods : {"id_data":Flood}
         self.floods = {}
        
         self.scheduler = Scheduler(self.tasks)
@@ -149,15 +150,16 @@ class Engine(Thread):
             id_data, seqno_data, data = args
             if id_data in self.floods:
                 logging.debug("id data already in floods, this flood will be postpone")
-                (seqno_flood, _,_,_) = self.floods[id_data]
-                if seqno_flood < seqno_data:
+                fl = self.floods[id_data]
+                if fl.seqno < seqno_data:
                     #interruption du flood pour la notre??
                     self.tasks.appendleft( (Task.flood, args) )
                 else:
                     logging.debug("already flooding more recent content")
             else:
                 logging.info("begin flooding (%s, %d)" % (hex(id_data), seqno_data))
-                self.floods[id_data]=(seqno_data, data, set(self.s_n.keys()), None, 0)
+                self.floods[id_data]=Flood(id_data, seqno_data, data)
+
         elif _type == Task.prune_neighborgs:
             logging.info("pruning neighbourgs")
 
@@ -260,12 +262,6 @@ class Engine(Thread):
                     else:
                         node.data[id_data] = seqno_data
 
-                if id_data in self.floods:
-                    (tmp_sqno,_,L,_,_) = self.floods[id_data]
-                    if seqno_data >= tmp_sqno and _id in L:
-                        L.remove(_id)
-                    continue
-
                 if id_data in self.data:
                     if self.data[id_data][0] < seqno_data:
                         self.data[id_data] = (seqno_data, data_pub, time())
@@ -284,40 +280,30 @@ class Engine(Thread):
                     else:
                         node.data[id_data] = seqno_data
 
-                if id_data not in self.floods:
-                    continue
-                
-                (tmp_sqno,_,L,_,_) = self.floods[id_data]
-                if seqno_data >= tmp_sqno and _id in L:
-                    L.remove(_id)
-
     def proccess_floods(self):
-        if not self.floods:
-            return 
-
         logging.debug("begin process floods")
-        #cleaning floods, ie deleting outdated floods(11s)
         del_keys = []
-        for key,(seqno,_,L,deadline,_) in self.floods.items():
-            if (deadline and deadline < time()) or not L:
-                del_keys.append( key )
-                logging.debug("removing outadated flood : %s,%d" % (hex(key), seqno) )
+        for fl in self.floods.values():
+            if fl.dead():
+                del_keys.append(fl._id)
+
+            if not fl.ready() or fl.dead():
+                continue
+
+            fl.run()
+            end = True
+            for node in filter(lambda node:fl.concerning(node), self.s_n.values()):
+                end = False
+                self.sendto( Data(fl._id, fl.seqno, fl.data), node.addr)
+                logging.info("flooding %s,%d to %s" %(hex(fl._id), fl.seqno, 
+                    hex(node._id)))
+
+            if end:        
+                del_keys.append( fl._id)
 
         for key in del_keys:
             del self.floods[key]
-        
-        #send Data each 3s    
-        for id_data, (seqno_data, data, L, deadline, last_send) in self.floods.items():     
-            if last_send + 3 < time():
-                logging.info("flooding %s,%d to %d nodes" %(hex(id_data), seqno_data, len(L)))
-                for _id in L:
-                    if _id in self.s_n:
-                        self.sendto( Data(id_data, seqno_data, data), 
-                            self.s_n[_id].addr)       
-                    else:
-                        L.remove(_id)
-                self.floods[id_data] = (seqno_data, data, L, deadline if deadline else time()+11, time())
-        
+
     def run(self):
         """
         main loop
