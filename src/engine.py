@@ -97,7 +97,115 @@ class Engine(Thread):
     def store(self):    
         pass
 
-    def process_task(self):
+### Tasks definitions
+    def contact_u_n(self):
+        logging.info("begin sending hello to %d neighbourgs" % 
+            (len(self.u_n)+len(self.s_n)))
+
+        for node in chain(self.u_n.values(), self.s_n.values()):
+            node.add_tlv(Msg.Hello, Hello())
+
+        if len(self.s_n) < 5 and self.p_n:
+            node = random.choice( list(self.p_n.values()))
+            node.add_tlv(Msg.Hello, Hello())
+    
+    def ihu_s_n(self):
+        logging.info("begin sending IHU to %d neighbourgs" % len(self.s_n)) 
+
+        for node in chain(self.u_n.values(), self.s_n.values()):
+            node.add_tlv( Msg.IHU,  IHU(node._id))
+    
+    def check_neighbourgs(self):
+        logging.info("checking if there is enought neighbours")
+
+        if len(self.p_n) < 5 and self.s_n:
+            logging.info("not enought neighbours, requesting others")
+            node = random.choice( list(self.s_n.values()))
+            node.add_tlv(Msg.NR, NeighbourgRequest()) 
+    
+    def update_data(self):
+        logging.info("updating data")
+
+        for id_data  in self.owned_data:
+            seqno, data, last_update = self.data[id_data]
+
+            self.data[id_data] = (seqno+1, data, time())
+            self.tasks.appendleft( (Task.flood, (id_data, seqno+1, data)) )  
+
+    def prune_data(self):
+        del_keys = []
+        for id_data, (seqno, data, last_update) in self.data.items():
+            if last_update + 35*60 < time() and (key not in self.owned_data):
+                del_keys.append(id_data)
+
+        logging.info("pruning %d outdated data" % len(del_keys))
+
+        for key in del_keys:
+            del self.data[key]
+
+        for node in self.s_n:
+            for key in del_keys:
+                if key in node.data:
+                    del node.data[key]
+
+    def register_flood(self, id_data, seqno_data, data):
+        if id_data in self.floods:
+            logging.debug("id data already in floods, this flood will be postpone")
+            fl = self.floods[id_data]
+            if fl.seqno < seqno_data:
+                logging.info("stop flooding %s with seqno=%d and preapring %d" % (hex(id_data), fl.seqno, seqno_data))
+                #we seed new content
+                del self.floods[id_data]
+                self.tasks.appendleft( (Task.flood, args) )
+            else:
+                logging.debug("already flooding more recent content")
+        else:
+            logging.info("begin flooding (%s, %d)" % (hex(id_data), seqno_data))
+            self.floods[id_data]=Flood(id_data, seqno_data, data)
+
+    def prune_neighbourgs(self):
+        logging.info("pruning neighbourgs")
+
+        for node in list(self.u_n.values()):
+            if node.last_paquet + 100 < time():
+                del self.u_n[node._id]
+        for node in list(self.s_n.values()):
+            if node.last_paquet + 150 < time() or node.last_ihu + 300 < time():
+                del self.s_n[node._id]
+    
+    def refresh_ihm(self):
+       os.system('clear')
+       
+       title = "Node id: %s, Uptime: %ds" % (hex(self.id), int(time()-self.starttime))
+       print( center(title) )
+       print( center(underline(title)) )
+       print( "\n")
+      
+       for name, htbl in [("Symetrical", self.s_n), 
+               ("Unidirectionnal",self.u_n), ("Potential", self.p_n)]:
+            title = "%s neighbourgs:" % name
+
+            print( title )
+            print( underline(title) )
+
+            n_data = " "*9 + "Id" + " "*9 + " " + " "*16+ "Ip" + " "*17
+            for node in htbl.values():
+                l_p = int(time()-node.last_paquet) if node.last_paquet >= 0 else -1 
+                l_i = int(time()-node.last_ihu) if node.last_ihu >= 0 else -1 
+                n_data = "%s\n  %s  %s:%d  %d  %d" % (n_data, hex(node._id),
+                        node.addr[0], node.addr[1], l_p, l_i)
+            print(n_data)
+
+       title = "Data :"
+       print(title)
+       print( underline(title))
+
+       b_data = " "*9 + "Id" + " "*9 + " " + "Seqno" + " "+ "Len" 
+       for _id, (seqno, data, _) in self.data.items():
+           b_data = "%s\n  %s  %d %d  |%s|" % (b_data, hex(_id), seqno, len(data), extract_data(data))
+       print( b_data )
+
+    def process_task(self):#il faut modifier self.tasks tl (pointeur de fct, args)
         if not self.tasks:
             return
 
@@ -105,106 +213,23 @@ class Engine(Thread):
         logging.debug("begin process_task %s " % str(_type))
         
         if _type == Task.contact_u_n:
-            logging.info("begin sending hello to %d neighbourgs" % 
-                (len(self.u_n)+len(self.s_n)))
-
-            for node in chain(self.u_n.values(), self.s_n.values()):
-                node.add_tlv(Msg.Hello, Hello())
-
-            if len(self.s_n) < 5 and self.p_n:
-                node = random.choice( list(self.p_n.values()))
-                node.add_tlv(Msg.Hello, Hello())
+            self.contact_u_n()
         elif _type == Task.ihu_s_n:
-            logging.info("begin sending IHU to %d neighbourgs" % len(self.s_n)) 
-
-            for node in chain(self.u_n.values(), self.s_n.values()):
-                node.add_tlv( Msg.IHU,  IHU(node._id))
+            self.ihu_s_n()
         elif _type == Task.check_neighborgs:
-            logging.info("checking if there is enought neighbours")
-
-            if len(self.p_n) < 5 and self.s_n:
-                logging.info("not enought neighbours, requesting others")
-                node = random.choice( list(self.s_n.values()))
-                node.add_tlv(Msg.NR, NeighbourgRequest()) 
+            self.check_neighbourgs()
         elif _type == Task.update_data:
-            logging.info("updating data")
-
-            for id_data  in self.owned_data:
-                seqno, data, last_update = self.data[id_data]
-
-                self.data[id_data] = (seqno+1, data, time())
-                self.tasks.appendleft( (Task.flood, (id_data, seqno+1, data)) )  
+            self.update_data()
         elif _type == Task.prune_data:
-            del_keys = []
-            for id_data, (seqno, data, last_update) in self.data.items():
-                if last_update + 35*60 < time() and (key not in self.owned_data):
-                    del_keys.append(id_data)
-
-            logging.info("pruning %d outdated data" % len(del_keys))
-
-            for key in del_keys:
-                del self.data[key]
-
-            for node in self.s_n:
-                for key in del_keys:
-                    if key in node.data:
-                        del node.data[key]
-
+            self.prune_data()
         elif _type == Task.flood:
             id_data, seqno_data, data = args
-            if id_data in self.floods:
-                logging.debug("id data already in floods, this flood will be postpone")
-                fl = self.floods[id_data]
-                if fl.seqno < seqno_data:
-                    logging.info("stop flooding %s with seqno=%d and preapring %d" % (hex(id_data), fl.seqno, seqno_data))
-                    #we seed new content
-                    del self.floods[id_data]
-                    self.tasks.appendleft( (Task.flood, args) )
-                else:
-                    logging.debug("already flooding more recent content")
-            else:
-                logging.info("begin flooding (%s, %d)" % (hex(id_data), seqno_data))
-                self.floods[id_data]=Flood(id_data, seqno_data, data)
-
+            self.register_flood(id_data, seqno_data, data)
         elif _type == Task.prune_neighborgs:
-            logging.info("pruning neighbourgs")
-
-            for node in list(self.u_n.values()):
-                if node.last_paquet + 100 < time():
-                    del self.u_n[node._id]
-            for node in list(self.s_n.values()):
-                if node.last_paquet + 150 < time() or node.last_ihu + 300 < time():
-                    del self.s_n[node._id]
+            self.prune_neighbourgs()
         elif _type == Task.refresh_ihm:
-           os.system('clear')
-           title = "Node id: %s, Uptime: %ds" % (hex(self.id), int(time()-self.starttime))
-           print( center(title) )
-           print( center(underline(title)) )
-           print( "\n")
-          
-           for name, htbl in [("Symetrical", self.s_n), 
-                   ("Unidirectionnal",self.u_n), ("Potential", self.p_n)]:
-                title = "%s neighbourgs:" % name
-
-                print( title )
-                print( underline(title) )
-
-                n_data = " "*9 + "Id" + " "*9 + " " + " "*16+ "Ip" + " "*17
-                for node in htbl.values():
-                    l_p = int(time()-node.last_paquet) if node.last_paquet >= 0 else -1 
-                    l_i = int(time()-node.last_ihu) if node.last_ihu >= 0 else -1 
-                    n_data = "%s\n  %s  %s:%d  %d  %d" % (n_data, hex(node._id),
-                            node.addr[0], node.addr[1], l_p, l_i)
-                print(n_data)
-
-           title = "Data :"
-           print(title)
-           print( underline(title))
-
-           b_data = " "*9 + "Id" + " "*9 + " " + "Seqno" + " "+ "Len" 
-           for _id, (seqno, data, _) in self.data.items():
-               b_data = "%s\n  %s  %d %d  |%s|" % (b_data, hex(_id), seqno, len(data), extract_data(data))
-           print( b_data )
+            self.refresh_ihm()
+            
     def process_recv(self, data, addr):
         if not data:
             return 
