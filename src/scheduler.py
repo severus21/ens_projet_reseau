@@ -43,8 +43,7 @@ class Scheduler(Thread):
         self.tasks.appendleft((Task.prune_neighborgs,None))
         
     def update_data(self):      
-        self.s.enter(30, 1, self.update_data)
-        #self.s.enter(25*60, 1, self.update_data)
+        self.s.enter(25*60, 1, self.update_data)
         self.tasks.appendleft((Task.update_data,None))
     
     def prune_data(self):    

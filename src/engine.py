@@ -152,7 +152,9 @@ class Engine(Thread):
                 logging.debug("id data already in floods, this flood will be postpone")
                 fl = self.floods[id_data]
                 if fl.seqno < seqno_data:
-                    #interruption du flood pour la notre??
+                    logging.info("stop flooding %s with seqno=%d and preapring %d" % (hex(id_data), fl.seqno, seqno_data))
+                    #we seed new content
+                    del self.floods[id_data]
                     self.tasks.appendleft( (Task.flood, args) )
                 else:
                     logging.debug("already flooding more recent content")
@@ -238,6 +240,8 @@ class Engine(Thread):
                     del self.p_n[_id]
                 
                 self.s_n[_id] = Node(_id, addr, time(), time())
+                for id_data, (seqno_data, data,_) in self.data.items():
+                    self.tasks.appendleft( (Task.flood, (id_data, seqno_data, data)) )  
                 #flood
             elif _type == Msg.NR:
                 logging.info("Received NeighbourgRequest and processing")
