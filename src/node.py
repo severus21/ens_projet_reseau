@@ -31,6 +31,9 @@ class Node:
         self.msgs_size = 0
         self.RTT = 0.3
     
+    def __repr__(self):
+        return "(%s,%s,%d)" % (hex(self._id), self.addr[0], self.addr[1])
+
     def _add_tlv(self, tlv, deadline):
         heappush(self.msgs, (deadline, tlv))
         self.msgs_size += len(tlv)

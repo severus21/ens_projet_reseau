@@ -22,6 +22,8 @@ from .paquet import *
 from .node import Node
 from .flood import Flood
 
+TIMEOUT = 0.005
+
 class Engine(Thread):
     def __init__(self, path=None, ip='::', port=None, bootstrap=[], data=[]):
         """
@@ -74,7 +76,6 @@ class Engine(Thread):
         logging.info("i am %s : %s %d"% (hex(self.id), self.ip, self.port))
 
     def send(self, paquet, addr):
-        logging.debug("sending to %s - %s" % (addr[0], str(addr[1])))
         try:
             saddr = ( ipv_2_ipv6(addr[0]), addr[1], 0, 0)
             _len = self.sock.sendto( paquet, saddr)
@@ -88,7 +89,7 @@ class Engine(Thread):
         for node in chain(self.s_n.values(), self.p_n.values(), self.u_n.values()):
             tlvs = node.next_tlvs()
             if tlvs:
-                logging.info("tlvs aggregated and send to %s" % hex(node._id))
+                logging.info("tlvs aggregated and send to %s" % node)
                 self.send(make_paquet(self.id, tlvs), node.addr)
 
     def load(self):
@@ -230,107 +231,115 @@ class Engine(Thread):
         elif _type == Task.refresh_ihm:
             self.refresh_ihm()
             
+### Recv 
+    def update_node(self, node_id, addr):
+        #maintenance de la liste des paquets
+        if (node_id not in self.u_n) and (node_id not in self.s_n):
+            if node_id in self.p_n:
+                node = self.p_n[node_id]
+                del self.p_n[node_id]
+            else:
+                node = Node(node_id, addr, time(), -1)
+
+            logging.info("%s added to unidirectionnal neighbours" % node)
+            self.u_n[node_id] = node
+            node.add_tlv(Msg.IHU, IHU(node_id))#première connection du coup on envoit un IHU
+        elif node_id in self.u_n:
+            node = self.u_n[node_id]
+        elif node_id in self.s_n:    
+            node = self.s_n[node_id]
+        
+        node.addr = addr
+        node.last_paquet = time()
+        
+        return node
+    
+    def recv_IHU(self, node, id_dest):
+        if id_dest != self.id:
+            return
+
+        logging.info("Received IHU from %s and processing" % node)
+        if node._id in self.u_n:
+            del self.u_n[node._id]
+        elif node._id in self.p_n:
+            del self.p_n[node._id]
+
+        node.last_ihu = node.last_paquet
+        self.s_n[node._id] = node
+        
+        for id_data, (seqno_data, data,_) in self.data.items():
+            self.tasks.appendleft( (Task.flood, (id_data, seqno_data, data)) ) 
+
+    def recv_neighbourgs_request(self, node):     
+        logging.info("Received NeighbourgRequest and processing")
+
+        #filter lui même
+        #7 car 7*26<250 ie tiens dans un tlv et comme ça on peut perdre 2 voisins avant la prochaine requête
+        ids = random.sample(list(self.s_n.keys()), min(7, len(self.s_n)))
+        ids = filter(lambda x: x!=node._id, ids)
+        node.add_tlv(Msg.N, Neighbourg([(i,self.s_n[i]) for i in ids]))
+
+    def recv_neighbourgs(self, node, neighbourgs):
+        logging.info("Received Neighbourg and processing")
+
+        for (id0, addr0) in neighbourgs: 
+            if id0 == self.id:
+                continue
+            elif id0 in self.p_n or id0 in self.u_n or id0 in self.s_n:
+                #on prefère faire confiance à nos propre données
+                continue
+            else:     
+                self.p_n[id0] = Node(id0, addr0, time())
+
+    def recv_data(self, node, id_data, seqno_data, data_pub):
+        logging.info("Received Data (%s,%d) from %s" % (hex(id_data), seqno_data, node))
+                
+        node.add_tlv(Msg.IHave, IHave(id_data, seqno_data))
+        if id_data in node.data:
+            node.data[id_data] = max(seqno_data, node.data[id_data])
+        else:
+            node.data[id_data] = seqno_data
+
+        if id_data in self.data:
+            if self.data[id_data][0] < seqno_data:
+                self.data[id_data] = (seqno_data, data_pub, time())
+                self.tasks.appendleft( (Task.flood, (id_data, seqno_data, data_pub)) )  
+        else:
+             self.data[id_data] = (seqno_data, data_pub, time())
+             self.tasks.appendleft( (Task.flood, (id_data, seqno_data, data_pub)) )  
+    
+    def recv_IHave(self, node, id_data, seqno_data):
+        logging.info("Received IHave (%s,%d)" % (hex(id_data), seqno_data))
+        if id_data in node.data:
+            node.data[id_data] = max(seqno_data, node.data[id_data])
+        else:
+            node.data[id_data] = seqno_data
+
+
     def process_recv(self, data, addr):
         if not data:
             return 
 
         _id, tlvs = to_tlvs(data)
-        logging.debug("begin process_recv %s" % hex(_id))
-
-        #maintenance de la liste des paquets
-        if (_id not in self.u_n) and (_id not in self.s_n):
-            if _id in self.p_n:
-                node = self.p_n[_id]
-                node.addr = addr
-                node.last_paquet = time()
-                del self.p_n[_id]
-            else:
-                node = Node(_id, addr, time(), -1)
-
-            logging.info("%s added to unidirectionnal neighbours" % hex(_id))
-            self.u_n[_id] = node
-            node.add_tlv(Msg.IHU, IHU(_id))#première connection du coup on envoit un IHU
-        elif _id in self.u_n:
-            self.u_n[_id].last_paquet = time()
-            self.u_n[_id].addr = addr
-            node = self.u_n[_id]
-        elif _id in self.s_n:    
-            self.s_n[_id].last_paquet = time()
-            self.s_n[_id].addr = addr
-            node = self.s_n[_id]
+        node = self.update_node(_id, addr)
         if not tlvs:
             return None
         
         for (_type, args) in tlvs:
-            logging.debug("begin process tlv %s" % str(_type))
             if _type == Msg.Pad1 or _type == Msg.PadN:
                 pass
             elif _type == Msg.IHU:
-                if args != self.id:
-                    continue
-                logging.debug("Received IHU from %s and processing" % hex(_id))
-                if _id in self.u_n:
-                    node = self.u_n[_id]
-                    del self.u_n[_id]
-                if _id in self.p_n:
-                    node = self.p_n[_id]
-                    del self.p_n[_id]
-                else:
-                    node =  Node(_id, addr)
-
-                node.addr = addr
-                node.last_paquet = time()
-                node.last_ihu = node.last_paquet
-                    
-                self.s_n[_id] = node
-                for id_data, (seqno_data, data,_) in self.data.items():
-                    self.tasks.appendleft( (Task.flood, (id_data, seqno_data, data)) )  
-                #flood
+                self.recv_IHU(node, args)
             elif _type == Msg.NR:
-                logging.info("Received NeighbourgRequest and processing")
-                #filter lui même
-                #7 car 7*26<250 ie tiens dans un tlv et comme ça on peut perdre 2 voisins avant la prochaine requête
-                ids = random.sample(list(self.s_n.keys()), min(7, len(self.s_n)))
-                
-                node.add_tlv(Msg.N, Neighbourg([(i,self.s_n[i]) for i in ids]))
+                self.recv_neighbourgs_request(node) 
             elif _type == Msg.N:
-                logging.info("Received Neighbourg and processing")
-                for (id0, addr0) in args: 
-                    if id0 == self.id:
-                        continue
-                    elif id0 in self.p_n or id0 in self.u_n or id0 in self.s_n:
-                        #on prefère faire confiance à nos propre données
-                        continue
-                    else:     
-                        self.p_n[id0] = Node(id0, addr0, time())
-
+                self.recv_neighbourgs(node, args)
             elif _type == Msg.Data:
                 id_data, seqno_data, data_pub = args
-                logging.info("Received Data (%s,%d) from (%s,%s,%d)" % (hex(id_data), seqno_data, hex(_id), addr[0], addr[1]))
-                
-                node.add_tlv(Msg.IHave, IHave(id_data, seqno_data))
-                if id_data in node.data:
-                    node.data[id_data] = max(seqno_data, node.data[id_data])
-                else:
-                    node.data[id_data] = seqno_data
-
-                if id_data in self.data:
-                    if self.data[id_data][0] < seqno_data:
-                        self.data[id_data] = (seqno_data, data_pub, time())
-                        self.tasks.appendleft( (Task.flood, (id_data, seqno_data, data_pub)) )  
-                else:
-                     self.data[id_data] = (seqno_data, data_pub, time())
-                     self.tasks.appendleft( (Task.flood, (id_data, seqno_data, data_pub)) )  
-
+                self.recv_data(node, id_data, seqno_data, data_pub)
             elif _type == Msg.IHave:
                 id_data, seqno_data= args
-                logging.info("Received IHave (%s,%d) and processing" % (hex(id_data), seqno_data))
-                if _id in self.s_n:
-                    node = self.s_n[_id]
-                    if id_data in node.data:
-                        node.data[id_data] = max(seqno_data, node.data[id_data])
-                    else:
-                        node.data[id_data] = seqno_data
+                self.recv_IHave(node, id_data, seqno_data)
 
     def proccess_floods(self):
         logging.debug("begin process floods")
@@ -347,8 +356,7 @@ class Engine(Thread):
             for node in filter(lambda node:fl.concerning(node), self.s_n.values()):
                 end = False
                 node.add_tlv(Msg.Data, Data(fl._id, fl.seqno, fl.data))
-                logging.info("flooding %s,%d to %s" %(hex(fl._id), fl.seqno, 
-                    hex(node._id)))
+                logging.info("flooding %s,%d to %s" %(hex(fl._id), fl.seqno, node))
 
             if end:        
                 del_keys.append( fl._id)
@@ -363,7 +371,7 @@ class Engine(Thread):
         try:
             self.sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP) 
             self.sock.bind((self.ip, self.port ))
-            self.sock.settimeout(0.001)
+            self.sock.settimeout(TIMEOUT)
         except Exception as e:
             log_exc(e)
             return False 
@@ -375,7 +383,6 @@ class Engine(Thread):
         self.starttime = time()
 
         while True:
-            #logging.debug("begin mainloop")
             try:
                 self.process_send()
 
