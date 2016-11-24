@@ -6,6 +6,8 @@ from .misc import Msg
 from .utility import *
 
 
+def Hello():
+    return b''
 
 def Pad1 () :
     return (0).to_bytes(1, byteorder = 'big') 

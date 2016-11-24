@@ -60,7 +60,7 @@ class Engine(Thread):
 
         #list of pending tasks
         self.tasks = deque(maxlen=10**4)
-        #message to be send not used
+        #message to be send( type, tlv, deadline)
         self.msgs = deque(maxlen=10**4)
         #all launched floods : {"id_data":Flood}
         self.floods = {}
@@ -72,19 +72,24 @@ class Engine(Thread):
             self.load()
         
         logging.info("i am %s : %s %d"% (hex(self.id), self.ip, self.port))
-    def sendto(self, tlv, addr):
+
+    def send(self, paquet, addr):
         logging.debug("sending to %s - %s" % (addr[0], str(addr[1])))
         try:
             saddr = ( ipv_2_ipv6(addr[0]), addr[1], 0, 0)
-            #saddr = socket.getaddrinfo(addr[0], addr[1], 
-            #        proto=socket.IPPROTO_UDP)[0][-1]
-            paquet = make_paquet(self.id, [tlv])
             _len = self.sock.sendto( paquet, saddr)
             if len(paquet) != _len:
                 logging.warning("sendto incomplete, bytes send %d/%d" % (
                     len(paquet), _len))
         except Exception as e:
             logging.warning("sendto failed : %s" % str(e))
+
+    def process_send(self):
+        for node in chain(self.s_n.values(), self.p_n.values(), self.u_n.values()):
+            tlvs = node.next_tlvs()
+            if tlvs:
+                logging.info("tlvs aggregated and send to %s" % hex(node._id))
+                self.send(make_paquet(self.id, tlvs), node.addr)
 
     def load(self):
         pass
@@ -104,24 +109,23 @@ class Engine(Thread):
                 (len(self.u_n)+len(self.s_n)))
 
             for node in chain(self.u_n.values(), self.s_n.values()):
-                self.sendto( Pad1(), node.addr)
+                node.add_tlv(Msg.Hello, Hello())
 
             if len(self.s_n) < 5 and self.p_n:
                 node = random.choice( list(self.p_n.values()))
-                self.sendto( Pad1(), node.addr)
+                node.add_tlv(Msg.Hello, Hello())
         elif _type == Task.ihu_s_n:
             logging.info("begin sending IHU to %d neighbourgs" % len(self.s_n)) 
 
             for node in chain(self.u_n.values(), self.s_n.values()):
-                self.sendto( IHU(node._id), node.addr)
+                node.add_tlv( Msg.IHU,  IHU(node._id))
         elif _type == Task.check_neighborgs:
             logging.info("checking if there is enought neighbours")
 
             if len(self.p_n) < 5 and self.s_n:
                 logging.info("not enought neighbours, requesting others")
                 node = random.choice( list(self.s_n.values()))
-
-                self.sendto( NeighbourgRequest(), node.addr)
+                node.add_tlv(Msg.NR, NeighbourgRequest()) 
         elif _type == Task.update_data:
             logging.info("updating data")
 
@@ -211,18 +215,24 @@ class Engine(Thread):
         #maintenance de la liste des paquets
         if (_id not in self.u_n) and (_id not in self.s_n):
             if _id in self.p_n:
+                node = self.p_n[_id]
+                node.addr = addr
+                node.last_paquet = time()
                 del self.p_n[_id]
+            else:
+                node = Node(_id, addr, time(), -1)
 
             logging.info("%s added to unidirectionnal neighbours" % hex(_id))
-            self.u_n[_id] = Node(_id, addr, time(), -1)
-            self.sendto( IHU(_id), addr)#première connection du coup on envoit un IHU
+            self.u_n[_id] = node
+            node.add_tlv(Msg.IHU, IHU(_id))#première connection du coup on envoit un IHU
         elif _id in self.u_n:
             self.u_n[_id].last_paquet = time()
             self.u_n[_id].addr = addr
+            node = self.u_n[_id]
         elif _id in self.s_n:    
             self.s_n[_id].last_paquet = time()
             self.s_n[_id].addr = addr
-
+            node = self.s_n[_id]
         if not tlvs:
             return None
         
@@ -235,36 +245,49 @@ class Engine(Thread):
                     continue
                 logging.debug("Received IHU from %s and processing" % hex(_id))
                 if _id in self.u_n:
+                    node = self.u_n[_id]
                     del self.u_n[_id]
                 if _id in self.p_n:
+                    node = self.p_n[_id]
                     del self.p_n[_id]
-                
-                self.s_n[_id] = Node(_id, addr, time(), time())
+                else:
+                    node =  Node(_id, addr)
+
+                node.addr = addr
+                node.last_paquet = time()
+                node.last_ihu = node.last_paquet
+                    
+                self.s_n[_id] = node
                 for id_data, (seqno_data, data,_) in self.data.items():
                     self.tasks.appendleft( (Task.flood, (id_data, seqno_data, data)) )  
                 #flood
             elif _type == Msg.NR:
                 logging.info("Received NeighbourgRequest and processing")
                 #filter lui même
-                ids = random.sample(list(self.s_n.keys()), min(10, len(self.s_n)))
-                self.sendto(Neighbourg([(i,self.s_n[i].addr) for i in ids]), addr)
+                #7 car 7*26<250 ie tiens dans un tlv et comme ça on peut perdre 2 voisins avant la prochaine requête
+                ids = random.sample(list(self.s_n.keys()), min(7, len(self.s_n)))
+                
+                node.add_tlv(Msg.N, Neighbourg([(i,self.s_n[i]) for i in ids]))
             elif _type == Msg.N:
                 logging.info("Received Neighbourg and processing")
                 for (id0, addr0) in args: 
-                    if id0 != self.id:
+                    if id0 == self.id:
+                        continue
+                    elif id0 in self.p_n or id0 in self.u_n or id0 in self.s_n:
+                        #on prefère faire confiance à nos propre données
+                        continue
+                    else:     
                         self.p_n[id0] = Node(id0, addr0, time())
 
             elif _type == Msg.Data:
                 id_data, seqno_data, data_pub = args
                 logging.info("Received Data (%s,%d) from (%s,%s,%d)" % (hex(id_data), seqno_data, hex(_id), addr[0], addr[1]))
                 
-                self.sendto(IHave(id_data, seqno_data), addr)
-                if _id in self.s_n:
-                    node = self.s_n[_id]
-                    if id_data in node.data:
-                        node.data[id_data] = max(seqno_data, node.data[id_data])
-                    else:
-                        node.data[id_data] = seqno_data
+                node.add_tlv(Msg.IHave, IHave(id_data, seqno_data))
+                if id_data in node.data:
+                    node.data[id_data] = max(seqno_data, node.data[id_data])
+                else:
+                    node.data[id_data] = seqno_data
 
                 if id_data in self.data:
                     if self.data[id_data][0] < seqno_data:
@@ -298,7 +321,7 @@ class Engine(Thread):
             end = True
             for node in filter(lambda node:fl.concerning(node), self.s_n.values()):
                 end = False
-                self.sendto( Data(fl._id, fl.seqno, fl.data), node.addr)
+                node.add_tlv(Msg.Data, Data(fl._id, fl.seqno, fl.data))
                 logging.info("flooding %s,%d to %s" %(hex(fl._id), fl.seqno, 
                     hex(node._id)))
 
@@ -329,6 +352,8 @@ class Engine(Thread):
         while True:
             #logging.debug("begin mainloop")
             try:
+                self.process_send()
+
                 try:
                     data, addr=self.sock.recvfrom(PAQUET_MAX_LEN)
                     self.process_recv( data, addr )

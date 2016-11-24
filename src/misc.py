@@ -1,8 +1,11 @@
 from enum import Enum
 
 PAQUET_MAX_LEN = 4096
+PAQUET_HEADER_LEN = 13
+BODY_MAX_LEN = PAQUET_MAX_LEN - PAQUET_HEADER_LEN
 
 class Msg(Enum):
+    Hello = 0
     Pad1 = 1
     PadN = 2
     IHU = 3

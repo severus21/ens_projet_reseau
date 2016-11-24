@@ -16,7 +16,6 @@ parser.add_argument("-d", nargs='?', dest='d')
 args = parser.parse_args()
 
 engine = Engine(ip='::', port=args.p, bootstrap=[
-    (int("d89b06b43762e43f",16), ('2001:660:3301:9200::51c2:1b9b', 1212)), 
-   #(int("7d6d23263041e011",16), ('81.194.27.155', 1212)), 
+    (int("6722a421aadb51bd",16), ('2001:660:3301:9200::51c2:1b9b', 1212)), 
 ], data= [str_to_data(args.d)] if args.d else [])
 engine.start()
