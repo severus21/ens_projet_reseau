@@ -2,7 +2,8 @@ from enum import Enum
 
 PAQUET_MAX_LEN = 4096
 PAQUET_HEADER_LEN = 13
-BODY_MAX_LEN = PAQUET_MAX_LEN - PAQUET_HEADER_LEN
+MTU = 1460
+BODY_MAX_LEN = min(MTU, PAQUET_MAX_LEN) - PAQUET_HEADER_LEN
 
 class Msg(Enum):
     Hello = 0
@@ -16,7 +17,11 @@ class Msg(Enum):
     Str = 8
     PNG = 9
     JPEG = 10
-    
+
+class Trame(Enum):
+    Insert = 0
+    Delete = 1
+
 class Task(Enum):
     #contact unidirectional neighborgs, each 30s
     contact_u_n = 1

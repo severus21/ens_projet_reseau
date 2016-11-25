@@ -19,6 +19,7 @@ from .utility import *
 from .misc import *
 from .scheduler import Scheduler
 from .paquet import *
+from .trame import *
 from .node import Node
 from .flood import Flood
 
@@ -138,7 +139,7 @@ class Engine(Thread):
     def prune_data(self):
         del_keys = []
         for id_data, (seqno, data, last_update) in self.data.items():
-            if last_update + 35*60 < time() and (key not in self.owned_data):
+            if last_update + 35*60 < time() and (id_data not in self.owned_data):
                 del_keys.append(id_data)
 
         logging.info("pruning %d outdated data" % len(del_keys))
@@ -146,7 +147,7 @@ class Engine(Thread):
         for key in del_keys:
             del self.data[key]
 
-        for node in self.s_n:
+        for node in self.s_n.values():
             for key in del_keys:
                 if key in node.data:
                     del node.data[key]
@@ -203,9 +204,12 @@ class Engine(Thread):
        print(title)
        print( underline(title))
 
-       b_data = " "*9 + "Id" + " "*9 + " " + "Seqno" + " "+ "Len" 
-       for _id, (seqno, data, _) in self.data.items():
-           b_data = "%s\n  %s  %d %d  |%s|" % (b_data, hex(_id), seqno, len(data), extract_data(data))
+       b_data = " "*9 + "Id" + " "*9 + " " + "Seqno Len Time Owned "
+       for _id, (seqno, data, last_update) in self.data.items():
+           b_data = "%s\n  %s  %d %d %d %s |%s|" % (
+                   b_data, hex(_id), seqno, len(data),
+                   (int(time()-last_update) if last_update >=0 else -1), 
+                   repr(_id in self.owned_data), extract_data(data))
        print( b_data )
 
     def process_task(self):#il faut modifier self.tasks tl (pointeur de fct, args)
@@ -318,7 +322,7 @@ class Engine(Thread):
             node.data[id_data] = seqno_data
 
 
-    def process_recv(self, data, addr):
+    def process_paquet(self, data, addr):
         if not data:
             return 
 
@@ -342,6 +346,37 @@ class Engine(Thread):
             elif _type == Msg.IHave:
                 id_data, seqno_data= args
                 self.recv_IHave(node, id_data, seqno_data)
+
+    def process_trame(self, data, addr):
+        _t, args = parse_trame(data)
+        logging.warning("process trame")
+        if _t == Trame.Insert:
+            data_id, data = args
+            self.owned_data.add(data_id)
+            if data_id in self.data:
+                seqno = self.data[data_id][0]+1
+            else:
+                seqno = 0
+
+            self.data[data_id] = (seqno, data, time())
+            self.tasks.appendleft( (Task.flood, (data_id, seqno, data)) ) 
+        elif _t == Trame.Delete:
+            data_id = args
+            if data_id not in self.data:
+                return
+
+            self.owned_data.discard(data_id)
+            self.data[data_id]=(self.data[data_id][0],self.data[data_id][1],-1)
+            self.prune_data()
+
+    def process_recv(self, data, addr):
+        if not data:
+            return 
+
+        if data[0] == 57:
+            self.process_paquet(data, addr)
+        elif data[0] == 58:
+            self.process_trame(data, addr)
 
     def proccess_floods(self):
         logging.debug("begin process floods")

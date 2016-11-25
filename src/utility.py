@@ -6,6 +6,9 @@ from ipaddress import *
 def to_bytes(num, n_bytes):
     return (num).to_bytes(n_bytes, byteorder='big')
 
+def from_bytes(b):
+    return int.from_bytes(b, byteorder='big')
+
 def ipv_2_ipv6(ip):
     x = ip_address(ip)
     if x.version == 4 and not x.ipv4_mapped:

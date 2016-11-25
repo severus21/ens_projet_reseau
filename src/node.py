@@ -25,6 +25,8 @@ class Node:
         self.last_paquet = last_paquet
         self.last_ihu = last_ihu
         self.data = data
+        
+        self.last_send = -1
 
         #(deadlinei,tlv) priority queue
         self.msgs = []
@@ -71,5 +73,9 @@ class Node:
             tlvs.append(tlv)
             size += len(tlv)
 
+        if size == 0 and self.last_paquet+get_deadline(Msg.Hello) > time():#ie only hello
+            return []
+
+        self.last_send = time()
         return tlvs    
 
