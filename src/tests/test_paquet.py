@@ -5,9 +5,6 @@ import string
 from src.paquet import *
 from src.utility import *
 
-def to_bytes(num, n_bytes):
-    return (num).to_bytes(n_bytes, byteorder='big')
-
 class TestTlv(unittest.TestCase):
     def test_pad1(self):
         tlv = to_bytes(0, 1)
@@ -93,5 +90,41 @@ class TestTlv(unittest.TestCase):
             self.assertEqual(len(tlv), n+2)
             self.assertTrue(len(tlv) < 258)
             
+class TestPaquet(unittest.TestCase):
+    def setUp(self):
+        self.id = random.randint(0,2**64)
+        self.N = 20
+        self.data_id = random.randint(0,2**64)
+        self.data_seqno = random.randint(0,2**16)
+        self.data_str = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(60))
+        self.data_bytes = to_bytes(random.getrandbits(50),50)
+        
+        self.tlvs = [Hello(), Pad1(), PadN(self.N), 
+                IHU(self.id), NeighbourgRequest(),
+                Neighbourg([]),Data(self.data_id, self.data_seqno, self.data_bytes),
+                Data_str(self.data_str), IHave(self.data_id, self.data_seqno),
+                Data(self.data_id, self.data_seqno, Data_str(self.data_str))]
+
+
+        self.buff = to_bytes(57, 1) + to_bytes(0, 1)
+    
+    def tearDown(self):
+        self.buff = b''
+
+    def test_hello(self):
+        for tlv in self.tlvs:        
+            buff = self.buff+to_bytes(len(tlv),2)+to_bytes(self.id,8)+tlv 
+
+            self.assertEqual(buff, make_paquet(self.id, [tlv]))
+    
+    def test_many(self):
+        for k in range(50):
+            tlvs = [ random.choice(self.tlvs) for k in range(15) ]
+            buff = self.buff + to_bytes(sum(map(len,tlvs)),2)
+            buff += to_bytes(self.id,8) + b''.join(tlvs)
+
+            self.assertEqual(buff, make_paquet(self.id, tlvs))
+    
+
 if __name__ == '__main__':
     unittest.main()

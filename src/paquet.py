@@ -5,58 +5,61 @@ from math import ceil
 from .misc import Msg
 from .utility import *
 
+def check_tlv(fct):
+    def tlv(*args, **kwargs):
+        buff = fct(*args, **kwargs)
+        assert(len(buff) < 258)
+        return buff
+    return tlv
 
+def check_paquet(fct):
+    def tlv(*args, **kwargs):
+        buff = fct(*args, **kwargs)
+        assert(len(buff) < 4096)
+        return buff
+    return tlv
+
+@check_tlv    
 def Hello():
     return b''
 
-def Pad1 () :
-    return (0).to_bytes(1, byteorder = 'big') 
+@check_tlv
+def Pad1():
+    return to_bytes(0, 1) 
+
+@check_tlv
+def PadN(n):
+    return to_bytes(1,1)+ to_bytes(n, 1) + to_bytes(0,n)
         
-        
-def PadN(n) :
-    _type = (1).to_bytes(1, byteorder = 'big')
-    length = n.to_bytes(1, byteorder = 'big')
-    return _type + length+(0).to_bytes(n, byteorder='big')
-        
+@check_tlv
 def IHU (_id):
-    _id = (_id).to_bytes(8, byteorder='big')
-    n = len(_id)
-    _type = (2).to_bytes(1, byteorder = 'big')
-    length = (8).to_bytes(1, byteorder = 'big')
-    return _type + length + _id
+    return to_bytes(2,1) + to_bytes(8,1) + to_bytes(_id, 8)  
      
+@check_tlv
 def NeighbourgRequest ():
-    _type = (3).to_bytes(1, byteorder = 'big')
-    length = (0).to_bytes(1, byteorder = 'big')
-    return _type + length
+    return to_bytes(3,1) + to_bytes(0,1) 
      
+@check_tlv
 def Neighbourg (l):
     body = b''
-    for (_id, (ip, port)) in l :
-        body += (_id).to_bytes(8, byteorder='big')+ip_string_to_byte(ip)+port.to_bytes(2, byteorder='big')
-    n = len(body)
-    if n % 8 !=0:
-        body += (0).to_bytes(8-n%8, byteorder = 'big')
-        n+= 8-n%8
-    _type = (4).to_bytes(1, byteorder = 'big')
-    length = n.to_bytes(1, byteorder = 'big')
-    return _type + length + body
-     
-def Data (_id, seqno, data):
-    _id = (_id).to_bytes(8, byteorder='big')
-    seqno =(seqno).to_bytes(4, byteorder = 'big')
-    n = len(seqno)+len(_id)+len(data)
-    _type = (5).to_bytes(1, byteorder = 'big')
-    length = n.to_bytes(1, byteorder = 'big')
-    return _type + length + seqno +_id +data
+    n = len(l)
+    m = (8-(n*26)%8 if (n*26)%8!=0 else 0)
 
-#def str_to_data(_str):
+    tlv = to_bytes(4,1) + to_bytes(n*26+m,1)
+    for (_id, (ip, port)) in l :
+        tlv += to_bytes(_id, 8) + ip_string_to_byte(ip) + to_bytes(port, 2)
+
+    return tlv + to_bytes(0,m)
+     
+@check_tlv
+def Data (_id, seqno, data):
+    n = len(data)+12
+    return to_bytes(5,1)+to_bytes(n,1)+to_bytes(seqno,4)+to_bytes(_id,8)+data 
+
+@check_tlv
 def Data_str(_str):    
-    _str, _t = _str.encode(), (32).to_bytes(1, byteorder='big')
-    if(len(_str)>255):
-        raise Exception("Str is too large %d > %d : %s" % (len(_str), 255, _str))
-    
-    return _t+(len(_str)).to_bytes(1, byteorder="big") + _str
+    buff = _str.encode()
+    return to_bytes(32,1)+to_bytes(len(buff),1) + buff
 
 def extract_data(data):
     _len = len(data)
@@ -70,29 +73,15 @@ def extract_data(data):
     else:
         return "Not supported %d" % t0
     
+@check_tlv
 def IHave(_id,seqno):
-    _id = (_id).to_bytes(8, byteorder='big')
-    seqno =(seqno).to_bytes(4, byteorder = 'big')
-    n = len(seqno)+len(_id)
-    _type = (6).to_bytes(1, byteorder = 'big')
-    length = n.to_bytes(1, byteorder = 'big')
-    return _type + length + seqno +_id 
+    return to_bytes(6,1) + to_bytes(12,1) + to_bytes(seqno,4) + to_bytes(_id,8)   
 
-
-
-def make_paquet (_id0, l):
-    body = b''
-    for tlv in l :
-        body += tlv
-
-    _id = (_id0).to_bytes(8, byteorder='big')   
-    magic = (57).to_bytes(1, byteorder = 'big')
-    version = (0).to_bytes(1, byteorder = 'big')
-    n = len(body)
-    length = n.to_bytes(2, byteorder = 'big')
-    return magic + version + length + _id + body
+@check_paquet
+def make_paquet (_id, tlvs):
+    buff = to_bytes(57,1)+to_bytes(0,1)+to_bytes(sum(map(len,tlvs)),2)
+    return buff + to_bytes(_id,8) + b''.join(tlvs)
  
-   
 def to_one_tlv (paquet, i):
     _type = paquet[i]
     if (_type == 0):  
