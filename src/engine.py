@@ -25,7 +25,8 @@ from .flood import Flood
 TIMEOUT = 0.005
 
 class Engine(Thread):
-    def __init__(self, path=None, ip='::', port=None, bootstrap=[], data=[]):
+    def __init__(self, path=None, ip='::', port=None, bootstrap=[], data=[],
+            pub_key=None, private_key=None):
         """
         @param path - path to store program data for recovery
         """
@@ -38,9 +39,10 @@ class Engine(Thread):
         self.port = port
         self.bootstrap = bootstrap 
 
-
         self.id = random.randint(0, 2**64) 
         self.seqno = 0
+        self.private_key = private_key
+        self.pub_key = pub_key
 
         #{"id": (seqno, donnée, date last update)} 
         self.data = {}

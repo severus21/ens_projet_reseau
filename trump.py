@@ -2,7 +2,7 @@ import logging
 import argparse
 
 from src.engine import Engine
-from src.paquet import str_to_data 
+from src.paquet import Data_str 
 
 logging.basicConfig(
     filename="trump.log", 
@@ -17,5 +17,5 @@ args = parser.parse_args()
 
 engine = Engine(ip='::', port=args.p, bootstrap=[
     (int("6722a421aadb51bd",16), ('2001:660:3301:9200::51c2:1b9b', 1212)), 
-], data= [str_to_data(args.d)] if args.d else [])
+], data= [Data_str(args.d)] if args.d else [])
 engine.start()

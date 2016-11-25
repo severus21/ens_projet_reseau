@@ -13,11 +13,10 @@ def Pad1 () :
     return (0).to_bytes(1, byteorder = 'big') 
         
         
-def PadN (mbz) :
-    n = len(mbz)
+def PadN(n) :
     _type = (1).to_bytes(1, byteorder = 'big')
     length = n.to_bytes(1, byteorder = 'big')
-    return _type + length+mbz
+    return _type + length+(0).to_bytes(n, byteorder='big')
         
 def IHU (_id):
     _id = (_id).to_bytes(8, byteorder='big')
@@ -51,10 +50,11 @@ def Data (_id, seqno, data):
     length = n.to_bytes(1, byteorder = 'big')
     return _type + length + seqno +_id +data
 
-def str_to_data(_str):
+#def str_to_data(_str):
+def Data_str(_str):    
     _str, _t = _str.encode(), (32).to_bytes(1, byteorder='big')
-    if(len(_str)>253):
-        raise Exception("Str is too large %d > %d : %s" % (len(_str), max_len, _str))
+    if(len(_str)>255):
+        raise Exception("Str is too large %d > %d : %s" % (len(_str), 255, _str))
     
     return _t+(len(_str)).to_bytes(1, byteorder="big") + _str
 
