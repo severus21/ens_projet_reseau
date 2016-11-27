@@ -41,13 +41,13 @@ class Engine(Thread):
         self.bootstrap = bootstrap 
 
         self.id = random.randint(0, 2**64) 
-        self.seqno = 0
+        #self.seqno = 0
         self.private_key = private_key
         self.pub_key = pub_key
 
         #{"id": (seqno, donnée, date last update)} 
         self.data = {}
-        self.owned_data = set()#àfaire {id noeud:[list des données possédées]
+        self.owned_data = set()#ids 
         for i,d in enumerate(data):
             _id = self.id if i == 0 else  random.randint(0, 2**64)
             self.data[_id] = (0, d, time())
@@ -301,6 +301,10 @@ class Engine(Thread):
         logging.info("Received Data (%s,%d) from %s" % (hex(id_data), seqno_data, node))
                 
         node.add_tlv(Msg.IHave, IHave(id_data, seqno_data))
+        
+        if id_data in self.owned_data:#on protège nos données
+            return
+
         if id_data in node.data:
             node.data[id_data] = max(seqno_data, node.data[id_data])
         else:
@@ -349,9 +353,10 @@ class Engine(Thread):
 
     def process_trame(self, data, addr):
         _t, args = parse_trame(data)
-        logging.warning("process trame")
         if _t == Trame.Insert:
             data_id, data = args
+            logging.info("Trame insert for %s" % hex(data_id))
+
             self.owned_data.add(data_id)
             if data_id in self.data:
                 seqno = self.data[data_id][0]+1
@@ -362,6 +367,8 @@ class Engine(Thread):
             self.tasks.appendleft( (Task.flood, (data_id, seqno, data)) ) 
         elif _t == Trame.Delete:
             data_id = args
+            logging.info("Trame delete for %s" % hex(data_id))
+
             if data_id not in self.data:
                 return
 

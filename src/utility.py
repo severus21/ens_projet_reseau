@@ -11,7 +11,7 @@ def from_bytes(b):
 
 def ipv_2_ipv6(ip):
     x = ip_address(ip)
-    if x.version == 4 and not x.ipv4_mapped:
+    if x.version == 4:
         return  "::FFFF:" + ip
     else:
         return ip
