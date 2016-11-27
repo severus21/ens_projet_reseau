@@ -19,7 +19,7 @@ from .utility import *
 from .misc import *
 from .scheduler import Scheduler
 from .paquet import *
-from .trame import *
+from .ballot import *
 from .node import Node
 from .flood import Flood
 
@@ -351,8 +351,8 @@ class Engine(Thread):
                 id_data, seqno_data= args
                 self.recv_IHave(node, id_data, seqno_data)
 
-    def process_trame(self, data, addr):
-        _t, args = parse_trame(data)
+    def process_ballot(self, data, addr):
+        _t, args = parse_ballot(data)
         if _t == Trame.Insert:
             data_id, data = args
             logging.info("Trame insert for %s" % hex(data_id))
@@ -383,7 +383,7 @@ class Engine(Thread):
         if data[0] == 57:
             self.process_paquet(data, addr)
         elif data[0] == 58:
-            self.process_trame(data, addr)
+            self.process_ballot(data, addr)
 
     def proccess_floods(self):
         logging.debug("begin process floods")

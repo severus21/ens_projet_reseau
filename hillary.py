@@ -3,7 +3,7 @@ import argparse
 import socket
 
 from src.paquet import Data_str 
-from src.trame import *
+from src.ballot import *
 
 logging.basicConfig(
     filename="hillary.log", 
@@ -25,6 +25,6 @@ sock.settimeout(1)
 addr = (args.host, args.port)
 
 if args.action.lower() == 'insert':
-    sock.sendto(trame_insert(args.data_id, Data_str(args.data)),addr)
+    sock.sendto(ballot_insert(args.data_id, Data_str(args.data)),addr)
 elif args.action.lower() == 'delete':    
-    sock.sendto(trame_delete(args.data_id),addr)
+    sock.sendto(ballot_delete(args.data_id),addr)
