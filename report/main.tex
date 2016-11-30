@@ -1,4 +1,4 @@
-\documentclass{report}
+\documentclass{article}
 \usepackage[utf8]{inputenc}
 \usepackage[english]{babel}
 \usepackage{float}
@@ -9,11 +9,16 @@
 \usepackage[top=2cm, bottom=2cm, left=2cm, right=2cm]{geometry}
 
 
-\begin{document}
 
+\begin{document}
+\title{Projet réseau 2016}
+\author{L.Prosperi \& R.Zucchini}
+
+\maketitle
+
+\abstractname{L'implémentation est en python, la version utilisée 3.5}
 
 \section{Implémentation}
-
 \subsection{Arborescence des fichiers}
 \begin{itemize}
  \item Deux launchers:
@@ -32,10 +37,10 @@
  \begin{itemize}
   \item engine.py - le coeur du projet, gére toute la partie réseau 
   \item flood.py - décrit l'inondation(objet python) d'une donnée
-  \item misc.py - déinition des constantes du programme
+  \item misc.py - définition des constantes du programme
   \item node.py - décrit un voisin( objet python)
   \item paquet.py - rassemble toutes les fonctions permettant de fabriquer, parser un paquet/tlv
-  \item scheduler.py - gère le temps, en fait il déclanche tous les événement périodiques :
+  \item scheduler.py - gère le temps, en fait il déclenche tous les événement périodiques :
   \begin{enumerate}
    \item Envoyer un paquet vide aux voisins
    \item Envoyer les IHU
@@ -46,20 +51,21 @@
   \end{enumerate}
 
   \item ballot.py :  rassemble toutes les fonctions permettant de fabriquer, parser les ordres envoyés d'hillary à trump
-  \item utility.py : une collection de fonctions plus ou moins utiles
+  \item utility.py : une collection de fonctions
  \end{itemize}
 \end{itemize}
 
-\subsection{Definition des objets}
+\subsection{Definition des structures(objets) utilisées}
 \begin{itemize}
  \item Flood(flood.py) - décrit l'inondation d'un objet, plus précisement permet de gérer les timers associés
  \item Node(node.py) - décrit un voisin(qu'il soit un potentiel, unidirectionel ou symétrique)
   Un \textit{node} est identifié de manière unique par son id
   Il contient :
   \begin{enumerate}
-   \item informations sur la date du dernier paquet/IHU reçut : sert à la gestion de la suppression des voisins trop vieux
-   \item toutes les données connues par ce noeud sous forme {data\_id:seqno\_le\_plusgrand\_connu\_par\_le\_noeud;....} : permmet l'innondation concurrente et optimisée
-   \item un tas binaire des messages à envoyer à ce noeud, où la priorité est la deadline du message : permet l'aggrégation de messages
+   \item informations sur la date du dernier paquet/IHU reçu : sert à la gestion de la suppression des voisins trop vieux
+   \item toutes les données connues par ce noeud sous forme {data\_id:seqno\_le\_plus\_grand\_connu\_par\_le\_noeud;....}, ce qui 
+   permet l'innondation concurrente et optimisée
+   \item un tas binaire des messages à envoyer vers ce noeud, où la priorité est la deadline du message. Ceci permettra l'aggrégations de messages
   \end{enumerate}
 \end{itemize}
 
@@ -69,56 +75,60 @@
  \item id - tiré aléatoirement entre 0 et $2^{64}-1$
  \item (ipv6, port) - l'adresse sur laquelle il doit écouter
  \item data - stocke tous les données connues sous la forme:
-  {data\_id:current\_seqno, données, date\_last\_update}
- \item owned\_data - un set des ids appartenant au noeud : permet d'avoir de multiples données (ou de se faire passer pour un autre)
+  {data\_id:(current\_seqno, données, date\_last\_update)}
+ \item owned\_data - un set des ids appartenant au noeud : 
+ permet d'avoir de multiples données (ou de se faire passer pour un autre)
  \item les trois listes de voisins( qui sont des table de hashage de Node)
- \item tasks - les taches devant être éxécutées par le serveur
- Tout ce qui n'est pas réception de message et execution d'une inondation en court est une tache, ce qui permet d'avoir un sytème d'évenement externe(scheduler) pour gérer les timers
+ \item tasks - les tâches devant être éxécutées par le serveur :\\
+ Tout ce qui n'est pas réception de message et execution d'une inondation en court est une tache.
+ Ce qui permet d'avoir un sytème d'évenement externe(scheduler) pour gérer les timers.
  \item floods - l'ensemble des inondations en court( ie une table de hashage de Flood)
 \end{itemize}
 
-Tout se fait dans la boucle principales
+Tout se fait dans la boucle principale
 
 \subsubsection{Gestion de l'innondation}
-On se sert des de la mémoire des \textit{Nodes} : c'est à dire pour chaque donnée le plus grand seqno qu'ils connaissent.
-A partir de là il suffit de parcourir tous les voisins symétriques et d'envoyer la donnée à ceux qui on seqno inférieur ou qui ne connaissent pas la donnée.
+On se sert de la mémoire des \textit{Nodes} : c'est à dire pour chaque pair (\textit{Node},donnée) le plus 
+grand seqno connu. A partir de là, il suffit de parcourir tous les voisins 
+symétriques et d'envoyer la donnée à ceux qui ont un seqno inférieur ou qui ne connaissent pas la donnée.
 
 \section{Les extensions}
 \subsection{Interface utilisateur minimaliste}
 Trump affiche sur ça console un résumé de ses structures de données(données et voisins)
-Hillary permet d'envoyer à un Trump(via un mini protocol non robuste : tire et oublie) un ordre de suppresion/modification/ajout de donnée
+Hillary permet d'envoyer à un Trump(via un mini protocol non robuste : tire et oublie) 
+un ordre de suppresion/modification/ajout de donnée
 
-On aurait pu faire l'affichage sur Hillary mais cela nécessitait d'utiliser curses et gérer la fragmentation des messages entre trump et hillary.
+On aurait pu faire l'affichage sur Hillary mais cela nécessitait d'utiliser curses et 
+gérer la fragmentation des messages entre trump et hillary.
 
 \subsection{Support des adresses IPv4/IPv6 et interfaces multiples}
-On stocke les deux sous forme de chaine de caractère( très facile en python, mais on perd un peu de mémoire) et de fait on n'a aucun problème.
+On stocke les deux sous forme de chaine de caractère( très facile en python, mais on 
+perd un peu de mémoire) et de fait on n'a aucun problème.
 
-Ensuite un \textit{Node} est identifié de manière unique par son id, et pour un id donné il n'existe qu'un seul objet \textit{Node}. De fait 
-à chaque paquet reçut on met à jour l'adresse du noeud et on lui parle via celle-ci.
+Ensuite un \textit{Node} est identifié de manière unique par son id. De fait à chaque paquet reçu on met à jour 
+l'adresse du noeud et on lui parle via celle-ci.
 
 \subsection{Agrégation des messages}
 On utilise un MTU initialisé à 1460 (et jamais calculé par manque de temps). 
-Ensuite pour chaque voisin on maintient un tas binaire des messages à envoyer ordonné suivant leur deadline, on envoit dans deux cas:
+Ensuite pour chaque voisin on maintient un tas binaire des messages à envoyer ordonnés suivant 
+leur deadline, on les envoit dans deux cas:
   \begin{itemize}
    \item Si un message va expirer
    \item Si on a assez de messages pour remplir un paquet
   \end{itemize}
-De plus, on maintient pour chaque noeud la date du dernier message envoyé comme ça on évite d'envoyer des paquets vides(renomer Hello) pour rien.
+De plus, on maintient pour chaque noeud la date du dernier message envoyé comme ça on évite d'envoyer des paquets vides pour rien.
 
 \subsection{Accélération de la convergence}
-Dès qu'un voisin est ajouté à la table des voisins unidirectionels(ie il nous envoyé un message) on envoit un IHU et de même lorsqu'on ajoute un voisin aux voisins 
-symétriques on déclanche une inondation normale pour chaque donnée(qui ne touchera, par algorithme, que les voisins ne l'ayant jamais vu).
+Dès qu'un voisin est ajouté à la table des voisins unidirectionels, on envoit un IHU et de même lorsqu'on ajoute un voisin aux voisins 
+symétriques on déclenche une inondation normale pour chaque donnée(qui ne touchera, par algorithme, que les voisins ne l'ayant jamais vue).
 
 Le délai ajouté par l'aggrégation de message est le facteur limitant au bootstrap. 
 
 \subsection{Inondation concurrent et optimisée}
-L'inondation fait parti de la boucle principale comme toutes les autres actions(sauf la gestion des timers). De plus on peut gérer un nombre arbitraire d'inondations concurrentes, 
-ie on peut inonder plusieures données en même temps, 
-( seul problème les inondations on la même priorité que le maintient de la liste des voisins ce qui peut poser problème si le noeud est surchargé par des dinondations à effectuer).
+L'inondation fait partie de la boucle principale comme toutes les autres actions(sauf la gestion des timers). De plus on peut gérer un nombre arbitraire d'inondations concurrentes, 
+ie on peut inonder plusieurs données en même temps.
 
-A chaque IHave, Data reçut on même à jour le seqno max pour la donnée correspondante dans le \textit{Node} réprésentant l'émétteur. De fait on automatiquement une inondation intelligente.
-Ensuite si on nous déclare une donnée avec un seqno plus ancien que le notre : on ignore. Inversement, si le seqno de la donnée est plus récent (on stop l'inondation de cette donnée s'il y 
+A chaque IHave/Data reçu, on met à jour le seqno max pour la donnée correspondante dans le \textit{Node} réprésentant l'émétteur. De fait, l'inondation est intelligente.
+Ensuite, si on nous déclare une donnée avec un seqno plus ancien que le notre : on ignore. Inversement, si le seqno de la donnée est plus récent (on stop l'inondation s'il y 
 en a une) et on inonde la nouvelle donnée.
-
-
 \end{document}
